@@ -34,6 +34,7 @@ function toast(msg, kind = '') {
 
 const ENABLE_TRANSCRIPTION = document.querySelector('meta[name="app-config"]')
   ?.dataset.enableTranscription === 'true';
+const THEME_STORAGE_KEY = 'atc-splitter-theme';
 
 let currentFile = null;          // { name, duration_sec, … }
 let sourceWS    = null;          // WaveSurfer instance for source
@@ -44,11 +45,42 @@ const transcriptCache = {};      // seg_name → transcript text (false = failed
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
+  setupThemeToggle();
   loadFiles();
   setupUpload();
   setupSourceControls();
   setupSegmentToolbar();
 });
+
+function setupThemeToggle() {
+  const btn = document.getElementById('btn-theme-toggle');
+  if (!btn) return;
+
+  const root = document.documentElement;
+  const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+  const systemPrefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const initialTheme = savedTheme || (systemPrefersDark ? 'dark' : 'light');
+
+  applyTheme(initialTheme, btn);
+
+  btn.addEventListener('click', () => {
+    const nextTheme = root.dataset.theme === 'light' ? 'dark' : 'light';
+    localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+    applyTheme(nextTheme, btn);
+  });
+}
+
+function applyTheme(theme, btn) {
+  const root = document.documentElement;
+  root.dataset.theme = theme;
+  if (theme === 'light') {
+    btn.textContent = '🌙 Night mode';
+    btn.setAttribute('aria-pressed', 'false');
+  } else {
+    btn.textContent = '☀ Day mode';
+    btn.setAttribute('aria-pressed', 'true');
+  }
+}
 
 // ── File list ─────────────────────────────────────────────────────────────────
 
