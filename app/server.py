@@ -41,11 +41,13 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 # Paths
 # ---------------------------------------------------------------------------
 BASE_DIR = Path(__file__).parent
-UPLOADS_DIR = BASE_DIR / "uploads"
-SEGMENTS_ROOT = BASE_DIR / "segments"
-CHUNKS_DIR = UPLOADS_DIR / ".chunks"
-
-MODELS_DIR = BASE_DIR / "models"
+# All persistent data lives under DATA_DIR so a single volume mount suffices.
+# Override with the DATA_DIR env var if needed (default: /app/data when in Docker).
+DATA_DIR     = Path(os.environ.get("DATA_DIR", str(BASE_DIR / "data")))
+UPLOADS_DIR  = DATA_DIR / "uploads"
+SEGMENTS_ROOT = DATA_DIR / "segments"
+CHUNKS_DIR   = UPLOADS_DIR / ".chunks"
+MODELS_DIR   = DATA_DIR / "models"
 
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 SEGMENTS_ROOT.mkdir(parents=True, exist_ok=True)

@@ -9,9 +9,8 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - ./data/uploads:/app/uploads
-      - ./data/segments:/app/segments
-      - ./data/models:/app/models
+      # Single volume for all persistent data (uploads, segments, Whisper model cache)
+      - ./data:/app/data
     environment:
       PORT: "5000"
       GUNICORN_WORKERS: "4"

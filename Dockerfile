@@ -29,10 +29,10 @@ COPY --from=build /install/deps /usr/local
 WORKDIR /app
 COPY app/ /app/
 
-# Persistent data volumes
-RUN mkdir -p /app/uploads /app/segments /app/models
+# Persistent data volume (uploads, segments, and Whisper models all live here)
+RUN mkdir -p /app/data
 
-VOLUME ["/app/uploads", "/app/segments", "/app/models"]
+VOLUME ["/app/data"]
 
 ENV PORT=5000
 EXPOSE 5000
