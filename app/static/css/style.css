@@ -322,6 +322,14 @@ main {
   color: #0f172a;
 }
 .seg-transcript.hidden { display: none; }
+.seg-transcript-saved {
+  display: inline-block;
+  font-size: 0.75rem;
+  color: #22c55e;
+  margin-top: 2px;
+  transition: opacity 0.4s;
+}
+.seg-transcript-saved.hidden { display: none; }
 
 /* ── Error list ── */
 .error-list {

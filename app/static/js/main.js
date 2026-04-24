@@ -384,6 +384,7 @@ function buildSegmentRow(seg) {
       <button class="btn btn-sm btn-danger btn-del-seg" data-seg="${seg.name}" title="Delete segment">✕</button>
     </div>
     <textarea class="seg-transcript hidden" rows="3" spellcheck="true" placeholder="Transcription will appear here"></textarea>
+    <span class="seg-transcript-saved hidden">✓ Saved</span>
     <div class="seg-waveform-wrap" style="height:70px"></div>
     <div class="seg-controls">
       <button class="btn btn-sm btn-primary btn-play-seg" data-seg="${seg.name}">▶ Play</button>
@@ -466,7 +467,11 @@ function buildSegmentRow(seg) {
         }),
       });
       transcriptCache[latestKey] = text;
-      toast('Transcription saved', 'success');
+      const savedLabel = transcriptInput.nextElementSibling;
+      if (savedLabel && savedLabel.classList.contains('seg-transcript-saved')) {
+        savedLabel.classList.remove('hidden');
+        setTimeout(() => savedLabel.classList.add('hidden'), 2000);
+      }
     } catch (err) {
       toast(`Failed to save transcription: ${err.message}`, 'error');
     }

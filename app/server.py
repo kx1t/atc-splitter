@@ -939,11 +939,11 @@ def update_transcription():
     text: str = str(data.get("text", ""))
 
     if not source_stem or not seg_name:
-        abort(400, "source_stem and segment_name are required")
+        return jsonify({"error": "source_stem and segment_name are required"}), 400
 
     seg_path = source_dir(source_stem) / seg_name
     if not seg_path.exists():
-        abort(404, f"Segment not found: {seg_name}")
+        return jsonify({"error": f"Segment not found: {seg_name}"}), 404
 
     set_transcript(source_stem, seg_name, text)
     return jsonify({"saved": seg_name, "text": text})
