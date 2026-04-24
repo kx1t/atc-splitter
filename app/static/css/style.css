@@ -36,6 +36,7 @@ header {
   gap: 1rem;
 }
 header h1 { font-size: 1.4rem; font-weight: 700; letter-spacing: .03em; }
+header .copyright { font-size: .72rem; color: var(--muted); margin-top: .1rem; }
 header .tagline { color: var(--muted); font-size: .85rem; }
 
 /* ── Main layout ── */
