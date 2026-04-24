@@ -302,13 +302,19 @@ main {
   font-size: .8rem;
   line-height: 1.5;
   color: var(--text);
-  background: #0e1018;
+  background: var(--surface2);
   border-left: 3px solid var(--accent2);
   border-radius: 4px;
   padding: .45rem .65rem;
   margin-bottom: .5rem;
   white-space: pre-wrap;
   word-break: break-word;
+}
+:root[data-theme='light'] .seg-transcript {
+  background: #f8fbff;
+  color: #0f172a;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent2);
 }
 .seg-transcript.hidden { display: none; }
 
