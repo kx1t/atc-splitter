@@ -1,5 +1,5 @@
 # ── Stage 1: build ──────────────────────────────────────────────────────────
-FROM python:3.11-slim-bookworm AS build
+FROM python:3.11-slim-trixie AS build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -10,7 +10,7 @@ COPY app/requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install/deps -r requirements.txt
 
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
-FROM python:3.11-slim-bookworm
+FROM python:3.11-slim-trixie
 
 LABEL org.opencontainers.image.title="ATC Splitter"
 LABEL org.opencontainers.image.description="Browser-based WAV silence splitter with waveform visualisation"
