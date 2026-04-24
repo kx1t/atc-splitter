@@ -258,14 +258,9 @@ function renderSegments(segments) {
 }
 
 function buildSegmentRow(seg) {
-  const stem = currentFile ? Path(currentFile.name).stem : '';
   const row = document.createElement('div');
   row.className = 'seg-row';
   row.id = `seg-${seg.name}`;
-
-  const waveId  = `sw-${seg.name}`;
-  const ctrlId  = `sc-${seg.name}`;
-  const timeId  = `st-${seg.name}`;
 
   row.innerHTML = `
     <div class="seg-header">
@@ -274,10 +269,10 @@ function buildSegmentRow(seg) {
       <span class="seg-dur">${fmtSec(seg.duration_sec)}</span>
       <button class="btn btn-sm btn-danger btn-del-seg" data-seg="${seg.name}" title="Delete segment">✕</button>
     </div>
-    <div class="seg-waveform-wrap" id="${waveId}" style="height:70px"></div>
-    <div class="seg-controls" id="${ctrlId}">
+    <div class="seg-waveform-wrap" style="height:70px"></div>
+    <div class="seg-controls">
       <button class="btn btn-sm btn-primary btn-play-seg" data-seg="${seg.name}">▶ Play</button>
-      <span class="seg-time-display" id="${timeId}">0:00.00 / ${fmtSec(seg.duration_sec)}</span>
+      <span class="seg-time-display">0:00.00 / ${fmtSec(seg.duration_sec)}</span>
       <div class="seg-split-row">
         <label>Split at</label>
         <input type="number" min="0" step="0.01" placeholder="sec" class="seg-split-input" data-seg="${seg.name}" />
@@ -333,8 +328,11 @@ function buildSegmentRow(seg) {
     row.querySelector('.btn-play-seg').textContent = ws.isPlaying() ? '⏸ Pause' : '▶ Play';
   });
 
+  const waveContainer = row.querySelector('.seg-waveform-wrap');
+  const timeDisplay = row.querySelector('.seg-time-display');
+
   // Build WaveSurfer for segment (deferred so DOM is ready)
-  setTimeout(() => buildSegmentWS(seg, waveId, timeId, row), 50);
+  setTimeout(() => buildSegmentWS(seg, waveContainer, timeDisplay, row), 50);
 
   return row;
 }
@@ -344,12 +342,13 @@ const Path = (name) => ({
   stem: name.replace(/\.[^.]+$/, ''),
 });
 
-function buildSegmentWS(seg, containerId, timeId, row) {
+function buildSegmentWS(seg, containerEl, timeEl, row) {
   if (!currentFile) return;
+  if (!containerEl) return;
   const sourceStem = currentFile.name.replace(/\.wav$/i, '');
 
   const ws = WaveSurfer.create({
-    container: `#${containerId}`,
+    container: containerEl,
     waveColor: '#3b82f6',
     progressColor: '#22d3ee',
     height: 70,
@@ -358,7 +357,9 @@ function buildSegmentWS(seg, containerId, timeId, row) {
 
   ws.on('timeupdate', t => {
     const dur = ws.getDuration() || seg.duration_sec;
-    document.getElementById(timeId).textContent = `${fmtSec(t)} / ${fmtSec(dur)}`;
+    if (timeEl) {
+      timeEl.textContent = `${fmtSec(t)} / ${fmtSec(dur)}`;
+    }
     // Auto-update seg-split-input as cursor moves (only if user hasn't typed)
     const inp = row.querySelector('.seg-split-input');
     if (inp && document.activeElement !== inp) {
