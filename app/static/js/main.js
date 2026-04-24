@@ -334,7 +334,7 @@ function buildSegmentRow(seg) {
 
   row.innerHTML = `
     <div class="seg-header">
-      <input type="checkbox" data-seg="${seg.name}" title="Select for rebuild" />
+      <input type="checkbox" data-seg="${seg.name}" title="Select for merge" />
       <span class="seg-name" title="${seg.name}">${seg.name}</span>
       <span class="seg-dur">${fmtSec(seg.duration_sec)}</span>
       <button class="btn btn-sm btn-danger btn-del-seg" data-seg="${seg.name}" title="Delete segment">✕</button>
@@ -560,7 +560,7 @@ async function rebuildSelected() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ source_stem: sourceStem, segments: segsArr }),
     });
-    toast(`Rebuilt → ${result.rebuilt}`, 'success');
+    toast(`Merged → ${result.merged}`, 'success');
     refreshSegments();
   } catch (err) {
     toast(err.message, 'error');

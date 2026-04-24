@@ -23,6 +23,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import shutil
 import wave
 import zipfile
@@ -114,6 +115,69 @@ def upload_chunk_dir(upload_id: str) -> Path:
     return CHUNKS_DIR / upload_id
 
 
+def segment_sort_key(entry: Dict[str, Any]) -> float:
+    try:
+        return float(entry.get("index", 0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def segment_part_labels(entry: Dict[str, Any], file_name: str) -> List[str]:
+    labels = entry.get("merged_part_indices")
+    if isinstance(labels, list) and labels:
+        return [str(label) for label in labels]
+
+    stem = Path(file_name).stem
+    z_merge_match = re.search(r"_part_([^_]+)z_([0-9A-Za-z_]+)$", stem)
+    if z_merge_match:
+        return [part for part in z_merge_match.group(2).split("_") if part]
+
+    merged_match = re.search(r"_part_([0-9A-Za-z_]+)_merged$", stem)
+    if merged_match:
+        return [part for part in merged_match.group(1).split("_") if part]
+
+    part_match = re.search(r"_part_(\d+)([A-Za-z]+)?$", stem)
+    if part_match:
+        number = part_match.group(1)
+        suffix = part_match.group(2) or ""
+        return [f"{number}{suffix}"]
+
+    try:
+        index_value = float(entry.get("index", 0))
+    except (TypeError, ValueError):
+        return [stem]
+
+    if index_value.is_integer():
+        return [f"{int(index_value):03d}"]
+
+    return [str(index_value).replace(".", "p")]
+
+
+def segment_current_label(file_name: str) -> str:
+    stem = Path(file_name).stem
+    part_match = re.search(r"_part_(.+)$", stem)
+    if part_match:
+        body = part_match.group(1)
+        return body.split("_", 1)[0]
+
+    return stem
+
+
+def split_segment_names(file_name: str) -> Tuple[str, str]:
+    stem = Path(file_name).stem
+    suffix = Path(file_name).suffix or ".wav"
+
+    z_merge_match = re.match(r"^(.*_part_)([^_]+)(_.+)$", stem)
+    if z_merge_match:
+        prefix, current_label, remainder = z_merge_match.groups()
+        return (
+            f"{prefix}{current_label}a{remainder}{suffix}",
+            f"{prefix}{current_label}b{remainder}{suffix}",
+        )
+
+    return (f"{stem}a{suffix}", f"{stem}b{suffix}")
+
+
 def run_split(source_path: Path, min_silence_ms: int, silence_threshold_db: float,
               analysis_step_ms: int, keep_silence_ms: int, min_chunk_ms: int) -> List[Path]:
     with wave.open(str(source_path), "rb") as in_wav:
@@ -159,7 +223,27 @@ def run_split(source_path: Path, min_silence_ms: int, silence_threshold_db: floa
 def segment_list_for(stem: str) -> List[Dict]:
     seg_dir = source_dir(stem)
     segs = []
-    for p in sorted(seg_dir.glob(f"{stem}_part_*.wav")):
+    seen = set()
+
+    mp = manifest_path(stem)
+    if mp.exists():
+        try:
+            mdata = load_manifest(mp)
+            entries = sorted(mdata.get("segments", []), key=segment_sort_key)
+            for entry in entries:
+                name = Path(entry.get("segment_file", "")).name
+                p = seg_dir / name
+                if not name or not p.exists() or name in seen:
+                    continue
+                info = wav_info(p)
+                segs.append({"name": p.name, "path": str(p), **info})
+                seen.add(name)
+        except SystemExit:
+            pass
+
+    for p in sorted(seg_dir.glob("*.wav")):
+        if p.name in seen:
+            continue
         info = wav_info(p)
         segs.append({"name": p.name, "path": str(p), **info})
     return segs
@@ -324,7 +408,7 @@ def upload_complete():
 def list_files():
     result = []
     for p in sorted(UPLOADS_DIR.glob("*.wav")):
-        has_segments = any(source_dir(p.stem).glob(f"{p.stem}_part_*.wav"))
+        has_segments = any(source_dir(p.stem).glob("*.wav"))
         result.append({
             "name": p.name,
             "has_segments": has_segments,
@@ -442,9 +526,7 @@ def resplit():
     if split_frame <= 0 or split_frame >= params.nframes:
         abort(400, "split_at_sec is outside the segment duration")
 
-    # Determine the two new part names (insert _a / _b before .wav)
-    a_name = seg_path.stem + "_a.wav"
-    b_name = seg_path.stem + "_b.wav"
+    a_name, b_name = split_segment_names(seg_path.name)
 
     # Write the two halves
     bpf = params.sampwidth * params.nchannels
@@ -472,6 +554,7 @@ def resplit():
                 orig_end = int(e["end_frame"])
                 orig_idx = int(e["index"])
                 fr = mdata["audio_params"]["frame_rate"]
+                current_label = segment_current_label(segment_name)
                 new_entries.append({
                     "index": orig_idx,
                     "segment_file": str(source_dir(source_stem) / a_name),
@@ -479,6 +562,7 @@ def resplit():
                     "end_frame": mid,
                     "start_sec": orig_start / fr,
                     "end_sec": mid / fr,
+                    "merged_part_indices": [f"{current_label}a"],
                 })
                 new_entries.append({
                     "index": orig_idx + 0.5,
@@ -487,6 +571,7 @@ def resplit():
                     "end_frame": orig_end,
                     "start_sec": mid / fr,
                     "end_sec": orig_end / fr,
+                    "merged_part_indices": [f"{current_label}b"],
                 })
             else:
                 new_entries.append(e)
@@ -530,16 +615,28 @@ def rebuild():
     if missing:
         abort(404, f"Segments not found in manifest: {missing}")
 
-    start_frame = min(int(seg_map[n]["start_frame"]) for n in seg_names)
-    end_frame = max(int(seg_map[n]["end_frame"]) for n in seg_names)
+    ordered_seg_names = [
+        Path(entry.get("segment_file", "")).name
+        for entry in sorted(mdata.get("segments", []), key=segment_sort_key)
+        if Path(entry.get("segment_file", "")).name in seg_names
+    ]
+    if not ordered_seg_names:
+        abort(400, "No valid segments selected for merge")
+
+    start_frame = min(int(seg_map[n]["start_frame"]) for n in ordered_seg_names)
+    end_frame = max(int(seg_map[n]["end_frame"]) for n in ordered_seg_names)
 
     source_wav = Path(str(mdata["source_wav"]))
     if not source_wav.exists():
         abort(404, f"Source WAV not found on disk: {source_wav}")
 
+    merged_part_indices: List[str] = []
+    for seg_name in ordered_seg_names:
+        merged_part_indices.extend(segment_part_labels(seg_map[seg_name], seg_name))
+
     if not output_name:
-        parts = "_".join(Path(n).stem.split("_part_")[-1] for n in seg_names)
-        output_name = f"{source_stem}_rebuilt_{parts}.wav"
+        parts = "_".join(merged_part_indices)
+        output_name = f"{source_stem}_part_{merged_part_indices[0]}z_{parts}.wav"
 
     out_path = source_dir(source_stem) / output_name
     extract_span(source_wav, start_frame, end_frame, out_path)
@@ -548,17 +645,18 @@ def rebuild():
     new_entries = []
     fr = mdata["audio_params"]["frame_rate"]
     rebuild_entry = {
-        "index": min(float(seg_map[n]["index"]) for n in seg_names),
+        "index": min(float(seg_map[n]["index"]) for n in ordered_seg_names),
         "segment_file": str(out_path),
         "start_frame": start_frame,
         "end_frame": end_frame,
         "start_sec": start_frame / fr,
         "end_sec": end_frame / fr,
-        "rebuilt_from": seg_names,
+        "merged_from": ordered_seg_names,
+        "merged_part_indices": merged_part_indices,
     }
     seen = set()
     for e in sorted(mdata.get("segments", []), key=lambda x: float(x.get("index", 0))):
-        if Path(e.get("segment_file", "")).name in seg_names:
+        if Path(e.get("segment_file", "")).name in ordered_seg_names:
             if "added" not in seen:
                 new_entries.append(rebuild_entry)
                 seen.add("added")
@@ -571,8 +669,8 @@ def rebuild():
     mp.write_text(json.dumps(mdata, indent=2), encoding="utf-8")
 
     return jsonify({
-        "rebuilt": output_name,
-        "removed": seg_names,
+        "merged": output_name,
+        "removed": ordered_seg_names,
         "start_sec": start_frame / fr,
         "end_sec": end_frame / fr,
         **wav_info(out_path),
