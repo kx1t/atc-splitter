@@ -41,4 +41,6 @@ ENV GUNICORN_WORKERS=4
 # Set ENABLE_TRANSCRIPTION=true to enable per-segment speech recognition (Whisper tiny.en)
 ENV ENABLE_TRANSCRIPTION=false
 ENV WHISPER_MODEL_SIZE=tiny.en
+# Optional Hugging Face token for higher download rate limits when models are first fetched.
+ENV HF_TOKEN=
 CMD ["sh", "-c", "exec gunicorn --workers $GUNICORN_WORKERS --bind 0.0.0.0:$PORT --timeout 120 server:app"]

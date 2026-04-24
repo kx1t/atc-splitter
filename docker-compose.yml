@@ -19,3 +19,5 @@ services:
       # cached in ./data/models so subsequent starts do not re-download it.
       ENABLE_TRANSCRIPTION: "false"
       # WHISPER_MODEL_SIZE: "tiny.en"   # uncomment to override model size
+      # Optional: export HF_TOKEN in your shell/.env for higher HF Hub rate limits.
+      HF_TOKEN: "${HF_TOKEN:-}"

@@ -65,9 +65,30 @@ _whisper_loading: bool = False
 _whisper_error: str | None = None
 
 
+def _whisper_log(message: str) -> None:
+    print(f"[whisper] {message}", flush=True)
+
+
+def _model_cache_present() -> bool:
+    model_slug = f"faster-whisper-{WHISPER_MODEL_SIZE}".replace("/", "-")
+    if any(MODELS_DIR.glob(f"models--*{model_slug}*")):
+        return True
+    return any(MODELS_DIR.rglob("model.bin"))
+
+
 def _preload_whisper() -> None:
     global _whisper_model, _whisper_loading, _whisper_error
     _whisper_loading = True
+    had_cache = _model_cache_present()
+    hf_token = os.environ.get("HF_TOKEN", "").strip()
+
+    if had_cache:
+        _whisper_log(f"already downloaded: faster-whisper model '{WHISPER_MODEL_SIZE}' found in {MODELS_DIR}")
+    else:
+        _whisper_log(f"downloading now: faster-whisper model '{WHISPER_MODEL_SIZE}'")
+        if not hf_token:
+            _whisper_log("HF_TOKEN not set; using unauthenticated Hugging Face downloads (lower rate limits)")
+
     try:
         from faster_whisper import WhisperModel  # type: ignore
 
@@ -77,15 +98,22 @@ def _preload_whisper() -> None:
             compute_type="int8",
             download_root=str(MODELS_DIR),
         )
+        if had_cache:
+            _whisper_log(f"download complete: already downloaded (cache hit), model '{WHISPER_MODEL_SIZE}' loaded")
+        else:
+            _whisper_log(f"download complete: model '{WHISPER_MODEL_SIZE}' downloaded and loaded")
     except Exception as exc:  # noqa: BLE001
         _whisper_error = str(exc)
+        _whisper_log(f"download error: {exc}")
     finally:
         _whisper_loading = False
 
 
 def _start_model_preload() -> None:
     if not ENABLE_TRANSCRIPTION:
+        _whisper_log("transcription disabled (ENABLE_TRANSCRIPTION=false)")
         return
+    _whisper_log("starting background model preload")
     t = threading.Thread(target=_preload_whisper, name="whisper-preload", daemon=True)
     t.start()
 
