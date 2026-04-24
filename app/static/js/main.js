@@ -43,7 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadFiles();
   setupUpload();
   setupSourceControls();
-  setupRebuildButton();
+  setupSegmentToolbar();
 });
 
 // ── File list ─────────────────────────────────────────────────────────────────
@@ -237,12 +237,12 @@ function destroyAllSegmentWS() {
   Object.values(segmentWSMap).forEach(ws => { try { ws.destroy(); } catch (_) {} });
   segmentWSMap = {};
   selectedSegs.clear();
-  updateRebuildButton();
+  updateSegmentActionButtons();
 }
 
 function renderSegments(segments) {
   selectedSegs.clear();
-  updateRebuildButton();
+  updateSegmentActionButtons();
 
   const area = document.getElementById('segments-area');
   const list = document.getElementById('segment-list');
@@ -255,6 +255,8 @@ function renderSegments(segments) {
     const row = buildSegmentRow(seg);
     list.appendChild(row);
   });
+
+  updateSegmentActionButtons();
 }
 
 function buildSegmentRow(seg) {
@@ -286,7 +288,7 @@ function buildSegmentRow(seg) {
     if (e.target.checked) selectedSegs.add(seg.name);
     else selectedSegs.delete(seg.name);
     row.classList.toggle('selected', e.target.checked);
-    updateRebuildButton();
+    updateSegmentActionButtons();
   });
 
   // Delete segment
@@ -337,11 +339,6 @@ function buildSegmentRow(seg) {
   return row;
 }
 
-// Simple helper – strip directory, return stem
-const Path = (name) => ({
-  stem: name.replace(/\.[^.]+$/, ''),
-});
-
 function buildSegmentWS(seg, containerEl, timeEl, row) {
   if (!currentFile) return;
   if (!containerEl) return;
@@ -383,17 +380,106 @@ function destroySegmentWS(name) {
   const ws = segmentWSMap[name];
   if (ws) { try { ws.destroy(); } catch (_) {} delete segmentWSMap[name]; }
   selectedSegs.delete(name);
-  updateRebuildButton();
+  updateSegmentActionButtons();
 }
 
 // ── Rebuild ───────────────────────────────────────────────────────────────────
 
-function setupRebuildButton() {
+function setupSegmentToolbar() {
+  const selectAll = document.getElementById('chk-select-all');
+  if (selectAll) {
+    selectAll.addEventListener('change', (e) => {
+      toggleSelectAllSegments(Boolean(e.target.checked));
+    });
+  }
+
+  const btnDownload = document.getElementById('btn-download-selected');
+  if (btnDownload) {
+    btnDownload.addEventListener('click', downloadSelected);
+  }
+
   document.getElementById('btn-rebuild').addEventListener('click', rebuildSelected);
 }
 
-function updateRebuildButton() {
-  document.getElementById('btn-rebuild').disabled = selectedSegs.size < 2;
+function updateSegmentActionButtons() {
+  const totalCheckboxes = document.querySelectorAll('#segment-list .seg-header input[type=checkbox]');
+  const checkedCheckboxes = document.querySelectorAll('#segment-list .seg-header input[type=checkbox]:checked');
+
+  const btnRebuild = document.getElementById('btn-rebuild');
+  const btnDownload = document.getElementById('btn-download-selected');
+  const chkSelectAll = document.getElementById('chk-select-all');
+
+  if (btnRebuild) btnRebuild.disabled = selectedSegs.size < 2;
+  if (btnDownload) btnDownload.disabled = selectedSegs.size < 1;
+
+  if (chkSelectAll) {
+    const total = totalCheckboxes.length;
+    const checked = checkedCheckboxes.length;
+    chkSelectAll.indeterminate = checked > 0 && checked < total;
+    chkSelectAll.checked = total > 0 && checked === total;
+  }
+}
+
+function toggleSelectAllSegments(shouldSelect) {
+  const checkboxes = document.querySelectorAll('#segment-list .seg-header input[type=checkbox]');
+  selectedSegs.clear();
+
+  checkboxes.forEach((cb) => {
+    cb.checked = shouldSelect;
+    const segName = cb.dataset.seg;
+    const row = cb.closest('.seg-row');
+    if (shouldSelect) {
+      selectedSegs.add(segName);
+      if (row) row.classList.add('selected');
+    } else if (row) {
+      row.classList.remove('selected');
+    }
+  });
+
+  updateSegmentActionButtons();
+}
+
+function parseDownloadFilename(contentDisposition, fallback) {
+  if (!contentDisposition) return fallback;
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match && utf8Match[1]) return decodeURIComponent(utf8Match[1]);
+  const simpleMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+  if (simpleMatch && simpleMatch[1]) return simpleMatch[1];
+  return fallback;
+}
+
+async function downloadSelected() {
+  if (!currentFile || selectedSegs.size < 1) return;
+
+  const sourceStem = currentFile.name.replace(/\.wav$/i, '');
+  const segsArr = [...selectedSegs];
+
+  const response = await fetch(API('/api/download-selected'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source_stem: sourceStem, segments: segsArr }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => 'Download failed');
+    toast(errText || 'Download failed', 'error');
+    return;
+  }
+
+  const blob = await response.blob();
+  const fallbackName = segsArr.length === 1 ? segsArr[0] : `${sourceStem}_selected_segments.zip`;
+  const filename = parseDownloadFilename(response.headers.get('content-disposition'), fallbackName);
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+
+  toast(`Downloaded ${selectedSegs.size} segment(s)`, 'success');
 }
 
 async function rebuildSelected() {

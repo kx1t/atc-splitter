@@ -11,16 +11,19 @@ Endpoints:
   GET    /api/audio/segment/<name>/<seg>   Stream a segment WAV
   POST   /api/resplit                Re-split at a specific time position
   POST   /api/rebuild                Combine adjacent segments losslessly
+    POST   /api/download-selected      Download one segment or ZIP of selected segments
   DELETE /api/segments/<name>/<seg>  Delete one segment
   GET    /api/manifest/<name>        Return the raw split manifest JSON
 """
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import shutil
 import wave
+import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -440,6 +443,48 @@ def rebuild():
         "end_sec": end_frame / fr,
         **wav_info(out_path),
     })
+
+
+# ---------------------------------------------------------------------------
+# Download selected segments (single WAV or ZIP)
+# ---------------------------------------------------------------------------
+@app.route("/api/download-selected", methods=["POST"])
+def download_selected():
+    data = request.get_json(force=True)
+    source_stem: str = data.get("source_stem", "")
+    seg_names: List[str] = data.get("segments", [])
+
+    if not source_stem or not seg_names:
+        abort(400, "source_stem and segments are required")
+
+    seg_paths: List[Path] = []
+    for seg_name in seg_names:
+        p = source_dir(source_stem) / seg_name
+        if not p.exists():
+            abort(404, f"Segment not found: {seg_name}")
+        seg_paths.append(p)
+
+    if len(seg_paths) == 1:
+        return send_file(
+            str(seg_paths[0]),
+            mimetype="audio/wav",
+            as_attachment=True,
+            download_name=seg_paths[0].name,
+        )
+
+    mem = io.BytesIO()
+    with zipfile.ZipFile(mem, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for p in seg_paths:
+            zf.write(str(p), arcname=p.name)
+    mem.seek(0)
+
+    zip_name = f"{source_stem}_selected_segments.zip"
+    return send_file(
+        mem,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=zip_name,
+    )
 
 
 # ---------------------------------------------------------------------------
