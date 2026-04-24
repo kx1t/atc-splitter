@@ -613,6 +613,11 @@ function setupSegmentToolbar() {
     btnDownload.addEventListener('click', downloadSelected);
   }
 
+  const btnDeleteAll = document.getElementById('btn-delete-all');
+  if (btnDeleteAll) {
+    btnDeleteAll.addEventListener('click', deleteAllSegments);
+  }
+
   document.getElementById('btn-rebuild').addEventListener('click', rebuildSelected);
 }
 
@@ -622,6 +627,7 @@ function updateSegmentActionButtons() {
 
   const btnRebuild = document.getElementById('btn-rebuild');
   const btnDownload = document.getElementById('btn-download-selected');
+  const btnDeleteAll = document.getElementById('btn-delete-all');
   const chkSelectAll = document.getElementById('chk-select-all');
 
   if (btnRebuild) btnRebuild.disabled = selectedSegs.size < 2;
@@ -632,6 +638,12 @@ function updateSegmentActionButtons() {
     const checked = checkedCheckboxes.length;
     chkSelectAll.indeterminate = checked > 0 && checked < total;
     chkSelectAll.checked = total > 0 && checked === total;
+
+    if (btnDeleteAll) {
+      btnDeleteAll.disabled = !(chkSelectAll.checked && total > 0);
+    }
+  } else if (btnDeleteAll) {
+    btnDeleteAll.disabled = true;
   }
 }
 
@@ -695,6 +707,39 @@ async function downloadSelected() {
   URL.revokeObjectURL(url);
 
   toast(`Downloaded ${selectedSegs.size} segment(s)`, 'success');
+}
+
+async function deleteAllSegments() {
+  if (!currentFile) return;
+
+  const checkboxes = Array.from(document.querySelectorAll('#segment-list .seg-header input[type=checkbox]'));
+  if (!checkboxes.length) return;
+
+  const sourceStem = currentFile.name.replace(/\.wav$/i, '');
+  const confirmed = window.confirm(`Delete all ${checkboxes.length} split segments for ${currentFile.name}? This cannot be undone.`);
+  if (!confirmed) return;
+
+  const btnDeleteAll = document.getElementById('btn-delete-all');
+  if (btnDeleteAll) btnDeleteAll.disabled = true;
+
+  try {
+    for (const cb of checkboxes) {
+      const segName = cb.dataset.seg;
+      if (!segName) continue;
+      await apiFetch(API(`/api/segments/${encodeURIComponent(sourceStem)}/${encodeURIComponent(segName)}`),
+        { method: 'DELETE' });
+      const row = cb.closest('.seg-row');
+      if (row) row.remove();
+      destroySegmentWS(segName);
+    }
+
+    selectedSegs.clear();
+    updateSegmentActionButtons();
+    toast('All segments deleted', 'success');
+  } catch (err) {
+    toast(`Failed to delete all segments: ${err.message}`, 'error');
+    refreshSegments();
+  }
 }
 
 async function rebuildSelected() {
