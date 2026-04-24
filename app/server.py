@@ -3,6 +3,8 @@
 
 Endpoints:
   POST   /api/upload                 Upload one or more WAV files
+    POST   /api/upload-chunk           Upload one chunk for a file
+    POST   /api/upload-complete        Assemble uploaded chunks and verify SHA-256
   GET    /api/files                  List all uploaded source files with metadata
   DELETE /api/files/<name>           Delete an uploaded file and its segments
   GET    /api/audio/source/<name>    Stream a source WAV
@@ -24,6 +26,7 @@ import os
 import shutil
 import wave
 import zipfile
+import hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -37,9 +40,11 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 BASE_DIR = Path(__file__).parent
 UPLOADS_DIR = BASE_DIR / "uploads"
 SEGMENTS_ROOT = BASE_DIR / "segments"
+CHUNKS_DIR = BASE_DIR / ".chunks"
 
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 SEGMENTS_ROOT.mkdir(parents=True, exist_ok=True)
+CHUNKS_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
 app = Flask(__name__, static_folder="static", template_folder="templates")
@@ -92,6 +97,21 @@ def wav_info(path: Path) -> Dict[str, Any]:
         }
     except Exception:
         return {"duration_sec": 0, "frame_rate": 0, "channels": 0, "sample_width": 0, "frames": 0}
+
+
+def file_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        while True:
+            chunk = f.read(1024 * 1024)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def upload_chunk_dir(upload_id: str) -> Path:
+    return CHUNKS_DIR / upload_id
 
 
 def run_split(source_path: Path, min_silence_ms: int, silence_threshold_db: float,
@@ -181,6 +201,118 @@ def upload():
         f.save(str(dest))
         saved.append({"name": name, **wav_info(dest)})
     return jsonify({"saved": saved, "errors": errors})
+
+
+# ---------------------------------------------------------------------------
+# Chunk upload
+# ---------------------------------------------------------------------------
+@app.route("/api/upload-chunk", methods=["POST"])
+def upload_chunk():
+    upload_id = (request.form.get("upload_id") or "").strip()
+    file_name = Path(request.form.get("file_name") or "").name
+    chunk_index = request.form.get("chunk_index")
+    total_chunks = request.form.get("total_chunks")
+    total_size = request.form.get("total_size")
+    file_sha256_value = (request.form.get("file_sha256") or "").strip().lower()
+    chunk_file = request.files.get("chunk")
+
+    if not upload_id or not file_name or chunk_index is None or total_chunks is None or total_size is None:
+        abort(400, "Missing required chunk metadata")
+    if not file_name.lower().endswith(".wav"):
+        abort(400, "Only WAV files are accepted")
+    if chunk_file is None:
+        abort(400, "Missing chunk file")
+
+    try:
+        chunk_index_i = int(chunk_index)
+        total_chunks_i = int(total_chunks)
+        total_size_i = int(total_size)
+    except ValueError:
+        abort(400, "Invalid numeric chunk metadata")
+
+    if chunk_index_i < 0 or total_chunks_i <= 0 or chunk_index_i >= total_chunks_i:
+        abort(400, "Invalid chunk index or total chunks")
+    if total_size_i <= 0:
+        abort(400, "Invalid total file size")
+
+    chunk_dir = upload_chunk_dir(upload_id)
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+
+    meta_path = chunk_dir / "meta.json"
+    if not meta_path.exists():
+        meta = {
+            "file_name": file_name,
+            "total_chunks": total_chunks_i,
+            "total_size": total_size_i,
+            "file_sha256": file_sha256_value,
+        }
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    else:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        if (
+            meta.get("file_name") != file_name
+            or int(meta.get("total_chunks", -1)) != total_chunks_i
+            or int(meta.get("total_size", -1)) != total_size_i
+            or (meta.get("file_sha256") or "") != file_sha256_value
+        ):
+            abort(409, "Chunk metadata mismatch for upload_id")
+
+    chunk_path = chunk_dir / f"{chunk_index_i:08d}.part"
+    chunk_file.save(str(chunk_path))
+
+    return jsonify({"ok": True, "upload_id": upload_id, "chunk_index": chunk_index_i})
+
+
+@app.route("/api/upload-complete", methods=["POST"])
+def upload_complete():
+    data = request.get_json(force=True)
+    upload_id = (data.get("upload_id") or "").strip()
+    file_name = Path(data.get("file_name") or "").name
+
+    if not upload_id or not file_name:
+        abort(400, "upload_id and file_name are required")
+    if not file_name.lower().endswith(".wav"):
+        abort(400, "Only WAV files are accepted")
+
+    chunk_dir = upload_chunk_dir(upload_id)
+    meta_path = chunk_dir / "meta.json"
+    if not chunk_dir.exists() or not meta_path.exists():
+        abort(404, "Upload session not found")
+
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    if meta.get("file_name") != file_name:
+        abort(409, "File name mismatch for upload session")
+
+    total_chunks = int(meta["total_chunks"])
+    expected_size = int(meta["total_size"])
+    expected_sha256 = (meta.get("file_sha256") or "").lower()
+
+    temp_target = chunk_dir / "assembled.tmp"
+    with temp_target.open("wb") as out:
+        for idx in range(total_chunks):
+            part = chunk_dir / f"{idx:08d}.part"
+            if not part.exists():
+                abort(400, f"Missing chunk {idx}")
+            with part.open("rb") as pf:
+                shutil.copyfileobj(pf, out)
+
+    actual_size = temp_target.stat().st_size
+    if actual_size != expected_size:
+        abort(400, f"Assembled size mismatch: expected {expected_size}, got {actual_size}")
+
+    actual_sha256 = file_sha256(temp_target)
+    if expected_sha256 and actual_sha256 != expected_sha256:
+        abort(400, "SHA-256 mismatch after assembly")
+
+    dest = UPLOADS_DIR / file_name
+    temp_target.replace(dest)
+
+    shutil.rmtree(chunk_dir, ignore_errors=True)
+
+    return jsonify({
+        "saved": {"name": file_name, **wav_info(dest)},
+        "sha256": actual_sha256,
+    })
 
 
 # ---------------------------------------------------------------------------

@@ -105,25 +105,83 @@ function setupUpload() {
 
 async function uploadFiles(files) {
   if (!files.length) return;
-  const fd = new FormData();
-  Array.from(files).forEach(f => fd.append('files', f));
   const errEl = document.getElementById('upload-errors');
+  const statusEl = document.getElementById('upload-status');
+
+  const CHUNK_SIZE = 512 * 1024;
+
+  async function sha256Hex(file) {
+    const buf = await file.arrayBuffer();
+    const digest = await crypto.subtle.digest('SHA-256', buf);
+    return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  async function uploadOneFileChunked(file) {
+    if (!file.name.toLowerCase().endsWith('.wav')) {
+      throw new Error(`${file.name}: only WAV files are accepted`);
+    }
+
+    const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    const fileSha256 = await sha256Hex(file);
+
+    for (let i = 0; i < totalChunks; i += 1) {
+      const start = i * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, file.size);
+      const chunkBlob = file.slice(start, end);
+
+      const fd = new FormData();
+      fd.append('upload_id', uploadId);
+      fd.append('file_name', file.name);
+      fd.append('chunk_index', String(i));
+      fd.append('total_chunks', String(totalChunks));
+      fd.append('total_size', String(file.size));
+      fd.append('file_sha256', fileSha256);
+      fd.append('chunk', chunkBlob, `${file.name}.part`);
+
+      const chunkRes = await fetch(API('/api/upload-chunk'), { method: 'POST', body: fd });
+      if (!chunkRes.ok) {
+        const msg = await chunkRes.text().catch(() => `Chunk ${i + 1} failed`);
+        throw new Error(msg || `Chunk ${i + 1} failed`);
+      }
+
+      statusEl.textContent = `Uploading ${file.name}: chunk ${i + 1}/${totalChunks}`;
+      statusEl.classList.remove('hidden');
+    }
+
+    const finalizeRes = await fetch(API('/api/upload-complete'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ upload_id: uploadId, file_name: file.name }),
+    });
+    if (!finalizeRes.ok) {
+      const msg = await finalizeRes.text().catch(() => 'Upload finalize failed');
+      throw new Error(msg || 'Upload finalize failed');
+    }
+
+    return finalizeRes.json();
+  }
 
   try {
-    const result = await apiFetch(API('/api/upload'), { method: 'POST', body: fd });
-    if (result.errors?.length) {
-      errEl.textContent = result.errors.join('; ');
-      errEl.classList.remove('hidden');
-    } else {
-      errEl.classList.add('hidden');
+    const uploadedNames = [];
+    errEl.classList.add('hidden');
+    statusEl.classList.remove('hidden');
+
+    for (const file of Array.from(files)) {
+      statusEl.textContent = `Preparing ${file.name}...`;
+      await uploadOneFileChunked(file);
+      uploadedNames.push(file.name);
     }
-    if (result.saved?.length) {
-      toast(`Uploaded ${result.saved.length} file(s)`, 'success');
+
+    statusEl.classList.add('hidden');
+    if (uploadedNames.length) {
+      toast(`Uploaded ${uploadedNames.length} file(s)`, 'success');
       loadFiles();
     }
   } catch (err) {
     errEl.textContent = err.message;
     errEl.classList.remove('hidden');
+    statusEl.classList.add('hidden');
   }
 }
 
