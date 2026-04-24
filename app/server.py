@@ -24,8 +24,9 @@ import wave
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from flask import Flask, Response, abort, jsonify, make_response, request, send_file
+from flask import Flask, Response, abort, jsonify, make_response, render_template, request, send_file
 from flask_cors import CORS
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -41,6 +42,8 @@ SEGMENTS_ROOT.mkdir(parents=True, exist_ok=True)
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500 MB
 CORS(app)
+# Trust proxy headers so app can run under reverse-proxy prefixes.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
 
 # ---------------------------------------------------------------------------
 # Lazy import of audio helpers  (same package)
@@ -148,7 +151,10 @@ def spa(path: str):
     static_file = app.static_folder + "/" + path
     if path and os.path.exists(static_file):
         return send_file(static_file)
-    return send_file(BASE_DIR / "templates" / "index.html")
+    base_path = (request.script_root or "").rstrip("/")
+    if not base_path:
+        base_path = "."
+    return render_template("index.html", base_path=base_path)
 
 
 # ---------------------------------------------------------------------------

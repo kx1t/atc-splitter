@@ -4,7 +4,7 @@
 
 // ── Utility ──────────────────────────────────────────────────────────────────
 
-const API = (path) => path;
+const API = (path) => String(path || '').replace(/^\/+/, '');
 
 async function apiFetch(url, opts = {}) {
   const res = await fetch(url, opts);
