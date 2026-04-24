@@ -40,7 +40,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 BASE_DIR = Path(__file__).parent
 UPLOADS_DIR = BASE_DIR / "uploads"
 SEGMENTS_ROOT = BASE_DIR / "segments"
-CHUNKS_DIR = BASE_DIR / ".chunks"
+CHUNKS_DIR = UPLOADS_DIR / ".chunks"
 
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 SEGMENTS_ROOT.mkdir(parents=True, exist_ok=True)
@@ -305,7 +305,9 @@ def upload_complete():
         abort(400, "SHA-256 mismatch after assembly")
 
     dest = UPLOADS_DIR / file_name
-    temp_target.replace(dest)
+    if dest.exists():
+        dest.unlink()
+    shutil.move(str(temp_target), str(dest))
 
     shutil.rmtree(chunk_dir, ignore_errors=True)
 
