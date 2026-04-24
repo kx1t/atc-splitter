@@ -180,7 +180,10 @@ def save_transcripts(stem: str, transcripts: Dict[str, str]) -> None:
         for k, v in transcripts.items()
         if str(v).strip()
     }
-    tp.write_text(json.dumps(cleaned, indent=2, ensure_ascii=False), encoding="utf-8")
+    if cleaned:
+        tp.write_text(json.dumps(cleaned, indent=2, ensure_ascii=False), encoding="utf-8")
+    elif tp.exists():
+        tp.unlink()
 
 
 def set_transcript(stem: str, seg_name: str, text: str) -> None:
@@ -201,6 +204,24 @@ def remove_transcripts(stem: str, seg_names: List[str]) -> None:
             changed = True
     if changed:
         save_transcripts(stem, transcripts)
+
+
+def remove_segments_from_manifest(stem: str, seg_names: List[str]) -> None:
+    mp = manifest_path(stem)
+    if not mp.exists() or not seg_names:
+        return
+
+    name_set = set(seg_names)
+    mdata = load_manifest(mp)
+    entries = mdata.get("segments", [])
+    filtered = [
+        e for e in entries
+        if Path(e.get("segment_file", "")).name not in name_set
+    ]
+
+    if len(filtered) != len(entries):
+        mdata["segments"] = filtered
+        mp.write_text(json.dumps(mdata, indent=2), encoding="utf-8")
 
 
 def wav_info(path: Path) -> Dict[str, Any]:
@@ -905,6 +926,7 @@ def delete_segment(source_stem: str, seg_name: str):
     p = source_dir(source_stem) / seg_name
     if p.exists():
         p.unlink()
+    remove_segments_from_manifest(source_stem, [seg_name])
     remove_transcripts(source_stem, [seg_name])
     return jsonify({"deleted": seg_name})
 
