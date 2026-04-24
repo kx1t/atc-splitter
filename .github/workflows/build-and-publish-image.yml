@@ -1,63 +1,166 @@
-name: Build and Publish Docker Image
+name: Build and Publish Multi-Arch Image
 
 on:
   push:
-    branches: [ "main" ]
-    tags:    [ "v*.*.*" ]
-  pull_request:
-    branches: [ "main" ]
+    branches:
+      - "**"
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - rootfs/**
+      - scripts/**
+      - requirements*.txt
+      - requirements/**
+      - pyproject.toml
+      - poetry.lock
+      - Pipfile
+      - Pipfile.lock
+      - setup.py
+      - setup.cfg
+      - Makefile
+      - app/**
+      - .github/workflows/build-and-publish-image.yml
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch name to build (example: main or feature/foo)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: image-build-${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && inputs.branch || github.ref_name }}
+  cancel-in-progress: true
 
 env:
-  REGISTRY:   ghcr.io
-  IMAGE_NAME: ${{ github.repository }}   # kx1t/atc-splitter
+  IMAGE: ghcr.io/kx1t/atc-splitter
 
 jobs:
-  build-and-push:
-    name: Build & push image
+  resolve-target:
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-      packages: write
-      id-token: write   # for cosign signing (optional future use)
-
+    outputs:
+      ref_name: ${{ steps.vars.outputs.ref_name }}
+      label: ${{ steps.vars.outputs.label }}
+      tag: ${{ steps.vars.outputs.tag }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Resolve target ref and tag
+        id: vars
+        shell: bash
+        env:
+          INPUT_BRANCH: ${{ inputs.branch }}
+        run: |
+          set -euo pipefail
 
-      - name: Set up QEMU (multi-arch)
-        uses: docker/setup-qemu-action@v3
+          ref_name="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            ref_name="${INPUT_BRANCH}"
+          fi
+
+          ref_name="${ref_name#refs/heads/}"
+
+          label="$(printf '%s' "${ref_name}" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's#[^a-z0-9._-]+#-#g; s#^-+##; s#-+$##')"
+
+          if [[ -z "${label}" ]]; then
+            echo "Unable to derive a valid label from branch '${ref_name}'" >&2
+            exit 1
+          fi
+
+          if [[ "${label}" == "main" ]]; then
+            tag="latest"
+          else
+            tag="${label}"
+          fi
+
+          echo "ref_name=${ref_name}" >> "${GITHUB_OUTPUT}"
+          echo "label=${label}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+  build-arch:
+    needs: resolve-target
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-target.outputs.ref_name }}
+
+      - name: Resolve build metadata
+        id: build_meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "git_commit=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+          echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${GITHUB_OUTPUT}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata (tags & labels)
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push image
-        uses: docker/build-push-action@v5
+      - name: Build and push arch image
+        uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags:   ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to:   type=gha,mode=max
+          file: ./Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          push: true
+          tags: ${{ env.IMAGE }}:${{ needs.resolve-target.outputs.tag }}-${{ matrix.arch }}
+          build-args: |
+            APP_GIT_COMMIT=${{ steps.build_meta.outputs.git_commit }}
+            APP_BUILD_TIME=${{ steps.build_meta.outputs.build_time }}
+          cache-from: |
+            type=gha,scope=atc-splitter-${{ matrix.arch }}
+            type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.arch }}
+          cache-to: |
+            type=gha,mode=max,scope=atc-splitter-${{ matrix.arch }}
+            type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.arch }},mode=max
+
+  merge-manifest:
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-target
+      - build-arch
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ needs.resolve-target.outputs.tag }}"
+          docker buildx imagetools create \
+            -t "${{ env.IMAGE }}:${tag}" \
+            "${{ env.IMAGE }}:${tag}-amd64" \
+            "${{ env.IMAGE }}:${tag}-arm64"
+
+      - name: Inspect published manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "${{ env.IMAGE }}:${{ needs.resolve-target.outputs.tag }}"
