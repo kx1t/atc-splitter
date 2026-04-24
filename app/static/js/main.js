@@ -161,8 +161,8 @@ async function uploadFiles(files) {
   }
 
   async function uploadOneFileChunked(file) {
-    if (!file.name.toLowerCase().endsWith('.wav')) {
-      throw new Error(`${file.name}: only WAV files are accepted`);
+    if (!file.name.toLowerCase().endsWith('.wav') && !file.name.toLowerCase().endsWith('.mp3')) {
+      throw new Error(`${file.name}: only WAV or MP3 files are accepted`);
     }
 
     const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;

@@ -435,8 +435,8 @@ def upload_chunk():
 
     if not upload_id or not file_name or chunk_index is None or total_chunks is None or total_size is None:
         abort(400, "Missing required chunk metadata")
-    if not file_name.lower().endswith(".wav"):
-        abort(400, "Only WAV files are accepted")
+    if not file_name.lower().endswith((".wav", ".mp3")):
+        abort(400, "Only WAV or MP3 files are accepted")
     if chunk_file is None:
         abort(400, "Missing chunk file")
 
@@ -488,8 +488,8 @@ def upload_complete():
 
     if not upload_id or not file_name:
         abort(400, "upload_id and file_name are required")
-    if not file_name.lower().endswith(".wav"):
-        abort(400, "Only WAV files are accepted")
+    if not file_name.lower().endswith((".wav", ".mp3")):
+        abort(400, "Only WAV or MP3 files are accepted")
 
     chunk_dir = upload_chunk_dir(upload_id)
     meta_path = chunk_dir / "meta.json"
@@ -525,6 +525,24 @@ def upload_complete():
     if dest.exists():
         dest.unlink()
     shutil.move(str(temp_target), str(dest))
+
+    # Convert MP3 → WAV (keep original sample rate and channel count)
+    if file_name.lower().endswith(".mp3"):
+        wav_name = Path(file_name).stem + ".wav"
+        wav_dest = UPLOADS_DIR / wav_name
+        import subprocess  # noqa: PLC0415
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", str(dest), "-vn", str(wav_dest)],
+                check=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            dest.unlink(missing_ok=True)
+            abort(500, f"MP3 conversion failed: {exc.stderr.decode(errors='replace').strip()}")
+        dest.unlink(missing_ok=True)  # remove the .mp3 after successful conversion
+        dest = wav_dest
+        file_name = wav_name
 
     shutil.rmtree(chunk_dir, ignore_errors=True)
 
