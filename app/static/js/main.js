@@ -32,6 +32,9 @@ function toast(msg, kind = '') {
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
+const ENABLE_TRANSCRIPTION = document.querySelector('meta[name="app-config"]')
+  ?.dataset.enableTranscription === 'true';
+
 let currentFile = null;          // { name, duration_sec, … }
 let sourceWS    = null;          // WaveSurfer instance for source
 let segmentWSMap = {};           // seg_name → WaveSurfer instance
@@ -349,7 +352,7 @@ function buildSegmentRow(seg) {
         <label>Split at</label>
         <input type="number" min="0" step="0.01" placeholder="sec" class="seg-split-input" data-seg="${seg.name}" />
         <button class="btn btn-sm btn-secondary btn-resplit" data-seg="${seg.name}">✂ Split here</button>
-        ${window.ENABLE_TRANSCRIPTION ? `<button class="btn btn-sm btn-transcribe" data-seg="${seg.name}">🗣 Transcribe</button>` : ''}
+        ${ENABLE_TRANSCRIPTION ? `<button class="btn btn-sm btn-transcribe" data-seg="${seg.name}">🗣 Transcribe</button>` : ''}
       </div>
     </div>
   `;
@@ -394,7 +397,7 @@ function buildSegmentRow(seg) {
   });
 
   // Transcribe button (only present when ENABLE_TRANSCRIPTION=true)
-  if (window.ENABLE_TRANSCRIPTION) {
+  if (ENABLE_TRANSCRIPTION) {
     row.querySelector('.btn-transcribe').addEventListener('click', async () => {
       const transcriptDiv = row.querySelector('.seg-transcript');
       // Toggle if already cached
