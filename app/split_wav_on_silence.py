@@ -4,7 +4,7 @@
 This implementation uses only Python's standard library (no paid or proprietary tools).
 
 Usage:
-  python3 split_wav_on_silence.py input.wav --min-silence-ms 500
+    python3 split_wav_on_silence.py input.wav --min-silence-ms 250
 """
 
 from __future__ import annotations
@@ -168,7 +168,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Split WAV file wherever silence is at least N milliseconds.")
     p.add_argument("input_wav", type=Path, help="Input WAV path")
     p.add_argument("--output-dir", type=Path, default=Path("split_output"), help="Output directory")
-    p.add_argument("--min-silence-ms", type=int, default=500, help="Minimum silence duration in ms")
+    p.add_argument("--min-silence-ms", type=int, default=250, help="Minimum silence duration in ms")
     p.add_argument("--silence-threshold-db", type=float, default=-38.0, help="Silence threshold in dBFS")
     p.add_argument("--analysis-step-ms", type=int, default=10, help="Silence analysis window in ms")
     p.add_argument("--keep-silence-ms", type=int, default=80, help="Silence padding around chunks in ms")

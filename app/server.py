@@ -369,7 +369,7 @@ def auto_split(name: str):
         abort(404, f"Source file not found: {name}")
 
     data = request.get_json(silent=True) or {}
-    min_silence_ms = int(data.get("min_silence_ms", 500))
+    min_silence_ms = int(data.get("min_silence_ms", 250))
     silence_threshold_db = float(data.get("silence_threshold_db", -38.0))
     analysis_step_ms = int(data.get("analysis_step_ms", 10))
     keep_silence_ms = int(data.get("keep_silence_ms", 80))
