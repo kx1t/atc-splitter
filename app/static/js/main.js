@@ -250,6 +250,16 @@ async function buildSourceWS(f) {
       `${fmtSec(t)} / ${fmtSec(sourceWS.getDuration() || f.duration_sec)}`;
   });
 
+  sourceWS.on('finish', () => {
+    const btn = document.getElementById('btn-play-source');
+    btn.textContent = '▶ Play source';
+    if (typeof sourceWS.setTime === 'function') {
+      sourceWS.setTime(0);
+    } else if (typeof sourceWS.seekTo === 'function') {
+      sourceWS.seekTo(0);
+    }
+  });
+
   document.getElementById('btn-play-source').addEventListener('click', () => {
     sourceWS.playPause();
     document.getElementById('btn-play-source').textContent =
