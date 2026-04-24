@@ -38,9 +38,11 @@ EXPOSE 5000
 
 # Gunicorn with 4 sync workers; increase via GUNICORN_WORKERS env
 ENV GUNICORN_WORKERS=4
+# Gunicorn worker timeout in seconds. Raise this if transcription of long segments times out (502).
+ENV GUNICORN_TIMEOUT=300
 # Set ENABLE_TRANSCRIPTION=true to enable per-segment speech recognition (Whisper tiny.en)
 ENV ENABLE_TRANSCRIPTION=false
 ENV WHISPER_MODEL_SIZE=tiny.en
 # Optional Hugging Face token for higher download rate limits when models are first fetched.
 ENV HF_TOKEN=
-CMD ["sh", "-c", "exec gunicorn --workers $GUNICORN_WORKERS --bind 0.0.0.0:$PORT --timeout 120 server:app"]
+CMD ["sh", "-c", "exec gunicorn --workers $GUNICORN_WORKERS --bind 0.0.0.0:$PORT --timeout $GUNICORN_TIMEOUT server:app"]
