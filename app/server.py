@@ -16,6 +16,7 @@ Endpoints:
     POST   /api/download-selected      Download one segment or ZIP of selected segments
   DELETE /api/segments/<name>/<seg>  Delete one segment
   GET    /api/manifest/<name>        Return the raw split manifest JSON
+  GET    /api/transcribe/<name>/<seg> Transcribe a segment with Whisper (requires ENABLE_TRANSCRIPTION=true)
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ import json
 import os
 import re
 import shutil
+import threading
 import wave
 import zipfile
 import hashlib
@@ -43,9 +45,41 @@ UPLOADS_DIR = BASE_DIR / "uploads"
 SEGMENTS_ROOT = BASE_DIR / "segments"
 CHUNKS_DIR = UPLOADS_DIR / ".chunks"
 
+MODELS_DIR = BASE_DIR / "models"
+
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 SEGMENTS_ROOT.mkdir(parents=True, exist_ok=True)
 CHUNKS_DIR.mkdir(parents=True, exist_ok=True)
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+# ---------------------------------------------------------------------------
+# Transcription (Whisper) — optional, controlled by ENABLE_TRANSCRIPTION env var
+# ---------------------------------------------------------------------------
+ENABLE_TRANSCRIPTION: bool = os.environ.get("ENABLE_TRANSCRIPTION", "false").strip().lower() in ("1", "true", "yes")
+WHISPER_MODEL_SIZE: str = os.environ.get("WHISPER_MODEL_SIZE", "tiny.en").strip()
+
+_whisper_model = None           # set by background thread
+_whisper_loading: bool = False
+_whisper_error: str | None = None
+
+
+def _preload_whisper() -> None:
+    global _whisper_model, _whisper_loading, _whisper_error
+    _whisper_loading = True
+    try:
+        import whisper  # type: ignore
+        _whisper_model = whisper.load_model(WHISPER_MODEL_SIZE, download_root=str(MODELS_DIR))
+    except Exception as exc:  # noqa: BLE001
+        _whisper_error = str(exc)
+    finally:
+        _whisper_loading = False
+
+
+def _start_model_preload() -> None:
+    if not ENABLE_TRANSCRIPTION:
+        return
+    t = threading.Thread(target=_preload_whisper, name="whisper-preload", daemon=True)
+    t.start()
 
 # ---------------------------------------------------------------------------
 app = Flask(__name__, static_folder="static", template_folder="templates")
@@ -53,6 +87,9 @@ app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500 MB
 CORS(app)
 # Trust proxy headers so app can run under reverse-proxy prefixes.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
+
+# Kick off Whisper model download/load in background (no-op if ENABLE_TRANSCRIPTION=false)
+_start_model_preload()
 
 # ---------------------------------------------------------------------------
 # Lazy import of audio helpers  (same package)
@@ -261,7 +298,8 @@ def spa(path: str):
     base_path = (request.script_root or "").rstrip("/")
     if not base_path:
         base_path = "."
-    return render_template("index.html", base_path=base_path)
+    return render_template("index.html", base_path=base_path,
+                           enable_transcription=ENABLE_TRANSCRIPTION)
 
 
 # ---------------------------------------------------------------------------
@@ -740,6 +778,32 @@ def get_manifest(name: str):
     if not mp.exists():
         abort(404)
     return jsonify(json.loads(mp.read_text(encoding="utf-8")))
+
+
+# ---------------------------------------------------------------------------
+# Transcription (Whisper)
+# ---------------------------------------------------------------------------
+@app.route("/api/transcribe/<source_stem>/<seg_name>", methods=["GET"])
+def transcribe_segment(source_stem: str, seg_name: str):
+    if not ENABLE_TRANSCRIPTION:
+        return jsonify({"error": "Transcription is disabled"}), 403
+
+    if _whisper_error:
+        return jsonify({"error": f"Whisper failed to load: {_whisper_error}"}), 503
+
+    if _whisper_model is None:
+        # Still loading — tell the client to retry
+        return jsonify({"status": "loading", "message": "Model is loading, please retry shortly"}), 202
+
+    p = source_dir(source_stem) / seg_name
+    if not p.exists():
+        abort(404)
+
+    try:
+        result = _whisper_model.transcribe(str(p), language="en", fp16=False)
+        return jsonify({"text": result["text"].strip()})
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": str(exc)}), 500
 
 
 # ---------------------------------------------------------------------------

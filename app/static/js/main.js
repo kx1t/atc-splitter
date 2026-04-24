@@ -36,6 +36,7 @@ let currentFile = null;          // { name, duration_sec, … }
 let sourceWS    = null;          // WaveSurfer instance for source
 let segmentWSMap = {};           // seg_name → WaveSurfer instance
 let selectedSegs = new Set();    // checked segment names
+const transcriptCache = {};      // seg_name → transcript text (false = failed)
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
@@ -339,6 +340,7 @@ function buildSegmentRow(seg) {
       <span class="seg-dur">${fmtSec(seg.duration_sec)}</span>
       <button class="btn btn-sm btn-danger btn-del-seg" data-seg="${seg.name}" title="Delete segment">✕</button>
     </div>
+    <div class="seg-transcript hidden"></div>
     <div class="seg-waveform-wrap" style="height:70px"></div>
     <div class="seg-controls">
       <button class="btn btn-sm btn-primary btn-play-seg" data-seg="${seg.name}">▶ Play</button>
@@ -347,6 +349,7 @@ function buildSegmentRow(seg) {
         <label>Split at</label>
         <input type="number" min="0" step="0.01" placeholder="sec" class="seg-split-input" data-seg="${seg.name}" />
         <button class="btn btn-sm btn-secondary btn-resplit" data-seg="${seg.name}">✂ Split here</button>
+        ${window.ENABLE_TRANSCRIPTION ? `<button class="btn btn-sm btn-transcribe" data-seg="${seg.name}">🗣 Transcribe</button>` : ''}
       </div>
     </div>
   `;
@@ -389,6 +392,61 @@ function buildSegmentRow(seg) {
       toast(err.message, 'error');
     }
   });
+
+  // Transcribe button (only present when ENABLE_TRANSCRIPTION=true)
+  if (window.ENABLE_TRANSCRIPTION) {
+    row.querySelector('.btn-transcribe').addEventListener('click', async () => {
+      const transcriptDiv = row.querySelector('.seg-transcript');
+      // Toggle if already cached
+      if (seg.name in transcriptCache) {
+        transcriptDiv.classList.toggle('hidden');
+        return;
+      }
+      const btn = row.querySelector('.btn-transcribe');
+      btn.textContent = '⏳ Loading…';
+      btn.disabled = true;
+      if (!currentFile) return;
+      const sourceStem = currentFile.name.replace(/\.wav$/i, '');
+      const url = API(`/api/transcribe/${encodeURIComponent(sourceStem)}/${encodeURIComponent(seg.name)}`);
+      const MAX_RETRIES = 20;
+      let attempts = 0;
+      const tryFetch = async () => {
+        attempts++;
+        try {
+          const res = await fetch(url);
+          if (res.status === 202) {
+            // Model still loading
+            if (attempts <= MAX_RETRIES) {
+              btn.textContent = '⏳ Loading model…';
+              setTimeout(tryFetch, 2000);
+            } else {
+              transcriptDiv.textContent = '⚠ Model took too long to load. Try again later.';
+              transcriptDiv.classList.remove('hidden');
+              btn.textContent = '🗣 Transcribe';
+              btn.disabled = false;
+            }
+            return;
+          }
+          const data = await res.json();
+          if (!res.ok || data.error) {
+            throw new Error(data.error || `HTTP ${res.status}`);
+          }
+          const text = data.text || '(no speech detected)';
+          transcriptCache[seg.name] = text;
+          transcriptDiv.textContent = text;
+          transcriptDiv.classList.remove('hidden');
+          btn.textContent = '🗣 Transcribe';
+          btn.disabled = false;
+        } catch (err) {
+          transcriptDiv.textContent = `⚠ ${err.message}`;
+          transcriptDiv.classList.remove('hidden');
+          btn.textContent = '🗣 Transcribe';
+          btn.disabled = false;
+        }
+      };
+      tryFetch();
+    });
+  }
 
   // Play button
   row.querySelector('.btn-play-seg').addEventListener('click', () => {

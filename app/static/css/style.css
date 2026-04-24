@@ -209,8 +209,6 @@ main {
   display: flex;
   flex-direction: column;
   gap: .5rem;
-  max-height: 60vh;
-  overflow-y: auto;
 }
 
 .seg-row {
@@ -276,6 +274,22 @@ main {
   padding: .2rem .35rem;
   font-size: .8rem;
 }
+
+/* ── Transcript box ── */
+.seg-transcript {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: .8rem;
+  line-height: 1.5;
+  color: var(--text);
+  background: #0e1018;
+  border-left: 3px solid var(--accent2);
+  border-radius: 4px;
+  padding: .45rem .65rem;
+  margin-bottom: .5rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.seg-transcript.hidden { display: none; }
 
 /* ── Error list ── */
 .error-list {

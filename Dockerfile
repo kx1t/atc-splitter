@@ -30,13 +30,16 @@ WORKDIR /app
 COPY app/ /app/
 
 # Persistent data volumes
-RUN mkdir -p /app/uploads /app/segments
+RUN mkdir -p /app/uploads /app/segments /app/models
 
-VOLUME ["/app/uploads", "/app/segments"]
+VOLUME ["/app/uploads", "/app/segments", "/app/models"]
 
 ENV PORT=5000
 EXPOSE 5000
 
 # Gunicorn with 4 sync workers; increase via GUNICORN_WORKERS env
 ENV GUNICORN_WORKERS=4
+# Set ENABLE_TRANSCRIPTION=true to enable per-segment speech recognition (Whisper tiny.en)
+ENV ENABLE_TRANSCRIPTION=false
+ENV WHISPER_MODEL_SIZE=tiny.en
 CMD ["sh", "-c", "exec gunicorn --workers $GUNICORN_WORKERS --bind 0.0.0.0:$PORT --timeout 120 server:app"]

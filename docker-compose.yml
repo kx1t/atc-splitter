@@ -11,6 +11,12 @@ services:
     volumes:
       - ./data/uploads:/app/uploads
       - ./data/segments:/app/segments
+      - ./data/models:/app/models
     environment:
       PORT: "5000"
       GUNICORN_WORKERS: "4"
+      # Set to "true" to enable per-segment speech recognition (Whisper tiny.en).
+      # The Whisper model (~75 MB) is downloaded on first container start and
+      # cached in ./data/models so subsequent starts do not re-download it.
+      ENABLE_TRANSCRIPTION: "false"
+      # WHISPER_MODEL_SIZE: "tiny.en"   # uncomment to override model size
