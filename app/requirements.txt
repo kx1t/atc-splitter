@@ -1,4 +1,4 @@
 flask>=3.0,<4
 flask-cors>=4.0,<5
 gunicorn>=21,<23
-openai-whisper>=20240930
+faster-whisper>=1.1,<2

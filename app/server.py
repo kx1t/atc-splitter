@@ -69,8 +69,14 @@ def _preload_whisper() -> None:
     global _whisper_model, _whisper_loading, _whisper_error
     _whisper_loading = True
     try:
-        import whisper  # type: ignore
-        _whisper_model = whisper.load_model(WHISPER_MODEL_SIZE, download_root=str(MODELS_DIR))
+        from faster_whisper import WhisperModel  # type: ignore
+
+        _whisper_model = WhisperModel(
+            WHISPER_MODEL_SIZE,
+            device="cpu",
+            compute_type="int8",
+            download_root=str(MODELS_DIR),
+        )
     except Exception as exc:  # noqa: BLE001
         _whisper_error = str(exc)
     finally:
@@ -802,8 +808,9 @@ def transcribe_segment(source_stem: str, seg_name: str):
         abort(404)
 
     try:
-        result = _whisper_model.transcribe(str(p), language="en", fp16=False)
-        return jsonify({"text": result["text"].strip()})
+        segments, _info = _whisper_model.transcribe(str(p), language="en")
+        text = " ".join(segment.text.strip() for segment in segments).strip()
+        return jsonify({"text": text})
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": str(exc)}), 500
 

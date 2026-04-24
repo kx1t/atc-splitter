@@ -25,14 +25,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy installed Python packages from build stage
 COPY --from=build /install/deps /usr/local
 
-# App code
 WORKDIR /app
-COPY app/ /app/
 
 # Persistent data volume (uploads, segments, and Whisper models all live here)
-RUN mkdir -p /app/data
-
 VOLUME ["/app/data"]
+
+# App code
+COPY app/ /app/
 
 ENV PORT=5000
 EXPOSE 5000

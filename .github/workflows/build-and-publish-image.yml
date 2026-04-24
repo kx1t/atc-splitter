@@ -126,12 +126,8 @@ jobs:
           build-args: |
             APP_GIT_COMMIT=${{ steps.build_meta.outputs.git_commit }}
             APP_BUILD_TIME=${{ steps.build_meta.outputs.build_time }}
-          cache-from: |
-            type=gha,scope=atc-splitter-${{ matrix.arch }}
-            type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.arch }}
-          cache-to: |
-            type=gha,mode=max,scope=atc-splitter-${{ matrix.arch }}
-            type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.arch }},mode=max
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.arch }},mode=max
 
   merge-manifest:
     runs-on: ubuntu-latest
