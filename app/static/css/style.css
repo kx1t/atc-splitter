@@ -298,11 +298,15 @@ main {
 
 /* ── Transcript box ── */
 .seg-transcript {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
   font-family: 'Courier New', Courier, monospace;
   font-size: .8rem;
   line-height: 1.5;
   color: var(--text);
   background: var(--surface2);
+  border: 1px solid var(--border);
   border-left: 3px solid var(--accent2);
   border-radius: 4px;
   padding: .45rem .65rem;
@@ -310,11 +314,12 @@ main {
   white-space: pre-wrap;
   word-break: break-word;
 }
+.seg-transcript:focus {
+  outline: 1px solid var(--accent2);
+}
 :root[data-theme='light'] .seg-transcript {
   background: #f8fbff;
   color: #0f172a;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent2);
 }
 .seg-transcript.hidden { display: none; }
 

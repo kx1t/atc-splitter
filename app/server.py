@@ -21,6 +21,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import csv
 import io
 import json
 import os
@@ -153,6 +154,53 @@ def source_dir(stem: str) -> Path:
 
 def manifest_path(stem: str) -> Path:
     return source_dir(stem) / f"{stem}_split_manifest.json"
+
+
+def transcript_path(stem: str) -> Path:
+    return source_dir(stem) / f"{stem}_transcripts.json"
+
+
+def load_transcripts(stem: str) -> Dict[str, str]:
+    tp = transcript_path(stem)
+    if not tp.exists():
+        return {}
+    try:
+        data = json.loads(tp.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(k): str(v) for k, v in data.items()}
+
+
+def save_transcripts(stem: str, transcripts: Dict[str, str]) -> None:
+    tp = transcript_path(stem)
+    cleaned = {
+        str(k): str(v)
+        for k, v in transcripts.items()
+        if str(v).strip()
+    }
+    tp.write_text(json.dumps(cleaned, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def set_transcript(stem: str, seg_name: str, text: str) -> None:
+    transcripts = load_transcripts(stem)
+    if text.strip():
+        transcripts[seg_name] = text
+    else:
+        transcripts.pop(seg_name, None)
+    save_transcripts(stem, transcripts)
+
+
+def remove_transcripts(stem: str, seg_names: List[str]) -> None:
+    transcripts = load_transcripts(stem)
+    changed = False
+    for name in seg_names:
+        if name in transcripts:
+            transcripts.pop(name, None)
+            changed = True
+    if changed:
+        save_transcripts(stem, transcripts)
 
 
 def wav_info(path: Path) -> Dict[str, Any]:
@@ -297,6 +345,7 @@ def segment_list_for(stem: str) -> List[Dict]:
     seg_dir = source_dir(stem)
     segs = []
     seen = set()
+    transcripts = load_transcripts(stem)
 
     mp = manifest_path(stem)
     if mp.exists():
@@ -309,7 +358,12 @@ def segment_list_for(stem: str) -> List[Dict]:
                 if not name or not p.exists() or name in seen:
                     continue
                 info = wav_info(p)
-                segs.append({"name": p.name, "path": str(p), **info})
+                segs.append({
+                    "name": p.name,
+                    "path": str(p),
+                    "transcription": transcripts.get(p.name, ""),
+                    **info,
+                })
                 seen.add(name)
         except SystemExit:
             pass
@@ -318,7 +372,12 @@ def segment_list_for(stem: str) -> List[Dict]:
         if p.name in seen:
             continue
         info = wav_info(p)
-        segs.append({"name": p.name, "path": str(p), **info})
+        segs.append({
+            "name": p.name,
+            "path": str(p),
+            "transcription": transcripts.get(p.name, ""),
+            **info,
+        })
     return segs
 
 
@@ -652,6 +711,8 @@ def resplit():
         mdata["segments"] = new_entries
         mp.write_text(json.dumps(mdata, indent=2), encoding="utf-8")
 
+    remove_transcripts(source_stem, [segment_name])
+
     return jsonify({
         "removed": segment_name,
         "created": [a_name, b_name],
@@ -718,6 +779,10 @@ def rebuild():
     # Remove the original segments from disk and manifest
     new_entries = []
     fr = mdata["audio_params"]["frame_rate"]
+
+    existing_transcripts = load_transcripts(source_stem)
+    merged_transcript_parts = [existing_transcripts.get(name, "").strip() for name in ordered_seg_names]
+    merged_transcript = " ".join(part for part in merged_transcript_parts if part).strip()
     rebuild_entry = {
         "index": min(float(seg_map[n]["index"]) for n in ordered_seg_names),
         "segment_file": str(out_path),
@@ -741,6 +806,10 @@ def rebuild():
             new_entries.append(e)
     mdata["segments"] = new_entries
     mp.write_text(json.dumps(mdata, indent=2), encoding="utf-8")
+
+    remove_transcripts(source_stem, ordered_seg_names)
+    if merged_transcript:
+        set_transcript(source_stem, output_name, merged_transcript)
 
     return jsonify({
         "merged": output_name,
@@ -778,10 +847,27 @@ def download_selected():
             download_name=seg_paths[0].name,
         )
 
+    transcripts = load_transcripts(source_stem)
+    selected_transcripts = {
+        name: transcripts.get(name, "")
+        for name in seg_names
+        if transcripts.get(name, "").strip()
+    }
+
     mem = io.BytesIO()
     with zipfile.ZipFile(mem, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for p in seg_paths:
             zf.write(str(p), arcname=p.name)
+
+        if selected_transcripts:
+            csv_buf = io.StringIO(newline="")
+            writer = csv.writer(csv_buf)
+            writer.writerow(["file_name", "transcribed_text"])
+            for name in seg_names:
+                text = selected_transcripts.get(name)
+                if text:
+                    writer.writerow([name, text])
+            zf.writestr("transcriptions.csv", csv_buf.getvalue())
     mem.seek(0)
 
     zip_name = f"{source_stem}_selected_segments.zip"
@@ -801,6 +887,7 @@ def delete_segment(source_stem: str, seg_name: str):
     p = source_dir(source_stem) / seg_name
     if p.exists():
         p.unlink()
+    remove_transcripts(source_stem, [seg_name])
     return jsonify({"deleted": seg_name})
 
 
@@ -838,9 +925,28 @@ def transcribe_segment(source_stem: str, seg_name: str):
     try:
         segments, _info = _whisper_model.transcribe(str(p), language="en")
         text = " ".join(segment.text.strip() for segment in segments).strip()
+        set_transcript(source_stem, seg_name, text)
         return jsonify({"text": text})
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/transcription", methods=["POST"])
+def update_transcription():
+    data = request.get_json(force=True)
+    source_stem: str = data.get("source_stem", "")
+    seg_name: str = data.get("segment_name", "")
+    text: str = str(data.get("text", ""))
+
+    if not source_stem or not seg_name:
+        abort(400, "source_stem and segment_name are required")
+
+    seg_path = source_dir(source_stem) / seg_name
+    if not seg_path.exists():
+        abort(404, f"Segment not found: {seg_name}")
+
+    set_transcript(source_stem, seg_name, text)
+    return jsonify({"saved": seg_name, "text": text})
 
 
 # ---------------------------------------------------------------------------

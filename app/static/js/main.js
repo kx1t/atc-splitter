@@ -21,6 +21,10 @@ function fmtSec(s) {
   return `${mm}:${ss}`;
 }
 
+function waitMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 let toastTimer;
 function toast(msg, kind = '') {
   const el = document.getElementById('toast');
@@ -40,7 +44,11 @@ let currentFile = null;          // { name, duration_sec, … }
 let sourceWS    = null;          // WaveSurfer instance for source
 let segmentWSMap = {};           // seg_name → WaveSurfer instance
 let selectedSegs = new Set();    // checked segment names
-const transcriptCache = {};      // seg_name → transcript text (false = failed)
+const transcriptCache = {};      // sourceStem::seg_name -> transcript text
+
+function transcriptKey(sourceStem, segName) {
+  return `${sourceStem}::${segName}`;
+}
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
@@ -375,7 +383,7 @@ function buildSegmentRow(seg) {
       <span class="seg-dur">${fmtSec(seg.duration_sec)}</span>
       <button class="btn btn-sm btn-danger btn-del-seg" data-seg="${seg.name}" title="Delete segment">✕</button>
     </div>
-    <div class="seg-transcript hidden"></div>
+    <textarea class="seg-transcript hidden" rows="3" spellcheck="true" placeholder="Transcription will appear here"></textarea>
     <div class="seg-waveform-wrap" style="height:70px"></div>
     <div class="seg-controls">
       <button class="btn btn-sm btn-primary btn-play-seg" data-seg="${seg.name}">▶ Play</button>
@@ -428,58 +436,99 @@ function buildSegmentRow(seg) {
     }
   });
 
+  const transcriptInput = row.querySelector('.seg-transcript');
+  const sourceStem = currentFile ? currentFile.name.replace(/\.wav$/i, '') : '';
+  const tKey = transcriptKey(sourceStem, seg.name);
+
+  // Preload persisted transcription from backend segment list.
+  if (seg.transcription) {
+    transcriptCache[tKey] = seg.transcription;
+    transcriptInput.value = seg.transcription;
+    transcriptInput.classList.remove('hidden');
+  }
+
+  // Persist manual edits on blur.
+  transcriptInput.addEventListener('blur', async () => {
+    if (!currentFile) return;
+    const latestSourceStem = currentFile.name.replace(/\.wav$/i, '');
+    const latestKey = transcriptKey(latestSourceStem, seg.name);
+    const text = transcriptInput.value || '';
+    if ((transcriptCache[latestKey] || '') === text) return;
+
+    try {
+      await apiFetch(API('/api/transcription'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_stem: latestSourceStem,
+          segment_name: seg.name,
+          text,
+        }),
+      });
+      transcriptCache[latestKey] = text;
+      toast('Transcription saved', 'success');
+    } catch (err) {
+      toast(`Failed to save transcription: ${err.message}`, 'error');
+    }
+  });
+
   // Transcribe button (only present when ENABLE_TRANSCRIPTION=true)
   if (ENABLE_TRANSCRIPTION) {
     row.querySelector('.btn-transcribe').addEventListener('click', async () => {
-      const transcriptDiv = row.querySelector('.seg-transcript');
-      // Toggle if already cached
-      if (seg.name in transcriptCache) {
-        transcriptDiv.classList.toggle('hidden');
+      if (!currentFile) return;
+      const btn = row.querySelector('.btn-transcribe');
+      const liveSourceStem = currentFile.name.replace(/\.wav$/i, '');
+      const liveKey = transcriptKey(liveSourceStem, seg.name);
+
+      // If already transcribed, toggle editor visibility.
+      if (transcriptCache[liveKey]) {
+        transcriptInput.classList.toggle('hidden');
         return;
       }
-      const btn = row.querySelector('.btn-transcribe');
+
+      transcriptInput.classList.remove('hidden');
+      transcriptInput.value = 'Transcribing...';
+      transcriptInput.readOnly = true;
       btn.textContent = '⏳ Loading…';
       btn.disabled = true;
-      if (!currentFile) return;
-      const sourceStem = currentFile.name.replace(/\.wav$/i, '');
-      const url = API(`/api/transcribe/${encodeURIComponent(sourceStem)}/${encodeURIComponent(seg.name)}`);
-      const MAX_RETRIES = 20;
-      let attempts = 0;
-      const tryFetch = async () => {
-        attempts++;
-        try {
+
+      try {
+        const url = API(`/api/transcribe/${encodeURIComponent(liveSourceStem)}/${encodeURIComponent(seg.name)}`);
+        let text = '';
+        let loaded = false;
+
+        for (let attempt = 1; attempt <= 20; attempt++) {
           const res = await fetch(url);
           if (res.status === 202) {
-            // Model still loading
-            if (attempts <= MAX_RETRIES) {
-              btn.textContent = '⏳ Loading model…';
-              setTimeout(tryFetch, 2000);
-            } else {
-              transcriptDiv.textContent = '⚠ Model took too long to load. Try again later.';
-              transcriptDiv.classList.remove('hidden');
-              btn.textContent = '🗣 Transcribe';
-              btn.disabled = false;
-            }
-            return;
+            btn.textContent = '⏳ Loading model…';
+            await waitMs(2000);
+            continue;
           }
-          const data = await res.json();
+
+          const data = await res.json().catch(() => ({}));
           if (!res.ok || data.error) {
             throw new Error(data.error || `HTTP ${res.status}`);
           }
-          const text = data.text || '(no speech detected)';
-          transcriptCache[seg.name] = text;
-          transcriptDiv.textContent = text;
-          transcriptDiv.classList.remove('hidden');
-          btn.textContent = '🗣 Transcribe';
-          btn.disabled = false;
-        } catch (err) {
-          transcriptDiv.textContent = `⚠ ${err.message}`;
-          transcriptDiv.classList.remove('hidden');
-          btn.textContent = '🗣 Transcribe';
-          btn.disabled = false;
+
+          text = data.text || '(no speech detected)';
+          loaded = true;
+          break;
         }
-      };
-      tryFetch();
+
+        if (!loaded) {
+          throw new Error('Model took too long to load. Try again later.');
+        }
+
+        transcriptCache[liveKey] = text;
+        transcriptInput.value = text;
+      } catch (err) {
+        transcriptInput.value = `⚠ ${err.message}`;
+      } finally {
+        transcriptInput.readOnly = false;
+        transcriptInput.classList.remove('hidden');
+        btn.textContent = '🗣 Transcribe';
+        btn.disabled = false;
+      }
     });
   }
 
