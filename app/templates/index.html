@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ATC Splitter</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <header>
+    <h1>ATC Splitter</h1>
+    <p class="tagline">Upload · Visualize · Split · Rebuild</p>
+  </header>
+
+  <main>
+    <!-- ── Upload panel ── -->
+    <section id="upload-panel" class="panel">
+      <h2>Upload WAV Files</h2>
+      <div id="drop-zone" class="drop-zone">
+        <p>Drag &amp; drop WAV files here, or</p>
+        <label class="btn btn-primary">
+          Choose Files
+          <input type="file" id="file-input" multiple accept=".wav" hidden />
+        </label>
+      </div>
+      <div id="upload-errors" class="error-list hidden"></div>
+    </section>
+
+    <!-- ── Source file list ── -->
+    <section id="files-panel" class="panel">
+      <h2>Source Files</h2>
+      <div id="file-list" class="file-list">
+        <p class="empty-hint">No files uploaded yet.</p>
+      </div>
+    </section>
+
+    <!-- ── Main work area ── -->
+    <section id="work-panel" class="panel hidden" aria-live="polite">
+      <div id="work-header">
+        <h2 id="work-title">…</h2>
+        <button id="btn-close-work" class="btn btn-sm btn-ghost" title="Close">✕</button>
+      </div>
+
+      <!-- Source waveform -->
+      <div class="waveform-wrapper" id="source-waveform-wrapper">
+        <div id="source-waveform"></div>
+        <div id="source-timeline"></div>
+      </div>
+
+      <div class="player-controls">
+        <button id="btn-play-source" class="btn btn-primary">▶ Play source</button>
+        <span id="source-time" class="time-display">0.00 / 0.00 s</span>
+        <label class="split-param">
+          Silence ≥ <input type="number" id="param-silence-ms" value="500" min="50" max="5000" step="50" /> ms
+        </label>
+        <label class="split-param">
+          Threshold <input type="number" id="param-threshold-db" value="-38" min="-80" max="-10" step="1" /> dBFS
+        </label>
+        <button id="btn-auto-split" class="btn btn-accent">⚡ Auto-Split</button>
+      </div>
+
+      <!-- Split mark hint -->
+      <p class="hint" id="split-hint">Click on the waveform to place a manual split marker.</p>
+
+      <!-- Segments -->
+      <div id="segments-area" class="hidden">
+        <div class="segments-toolbar">
+          <h3>Segments</h3>
+          <span class="hint">Select two or more adjacent segments then click <strong>Rebuild</strong>.</span>
+          <button id="btn-rebuild" class="btn btn-secondary" disabled>⧉ Rebuild selected</button>
+        </div>
+        <div id="segment-list"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ── Notification toast ── -->
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- WaveSurfer CDN (MIT licensed) -->
+  <script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
+  <script src="https://unpkg.com/wavesurfer.js@7/dist/plugins/timeline.min.js"></script>
+  <script src="https://unpkg.com/wavesurfer.js@7/dist/plugins/regions.min.js"></script>
+  <script src="/static/js/main.js"></script>
+</body>
+</html>
