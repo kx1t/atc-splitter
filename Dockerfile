@@ -1,3 +1,17 @@
+# © 2026 by Ramon F. Kolb, kx1t.
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 # ── Stage 1: build ──────────────────────────────────────────────────────────
 FROM python:3.11-slim-trixie AS build
 
@@ -15,7 +29,7 @@ FROM python:3.11-slim-trixie
 LABEL org.opencontainers.image.title="ATC Splitter"
 LABEL org.opencontainers.image.description="Browser-based WAV silence splitter with waveform visualisation"
 LABEL org.opencontainers.image.source="https://github.com/kx1t/atc-splitter"
-LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.licenses="GPL-3.0-or-later"
 
 # ffmpeg is optional but speeds up silence detection on demand
 RUN apt-get update && apt-get install -y --no-install-recommends \
