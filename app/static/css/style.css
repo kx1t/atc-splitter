@@ -238,8 +238,29 @@ main {
   align-items: center;
   gap: .75rem;
   margin-bottom: .75rem;
-  padding-bottom: .5rem;
-  border-bottom: 1px solid var(--border);
+  padding: .55rem .65rem;
+  position: sticky;
+  top: .5rem;
+  z-index: 20;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 3px 14px rgba(0,0,0,.22);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+:root[data-theme='light'] .segments-toolbar {
+  box-shadow: 0 3px 12px rgba(15,23,42,.12);
+}
+
+#segments-area .hint {
+  margin-bottom: 0;
+}
+
+.segments-toolbar h3,
+.segments-toolbar .hint {
+  margin-right: .1rem;
 }
 
 #segment-list {
