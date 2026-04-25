@@ -18,7 +18,7 @@
 
 Browser-based WAV audio silence splitter with waveform visualization.
 
-Upload WAV files → visualize waveform → auto-split on silence → play segments → re-split at any point → losslessly rebuild adjacent segments → export CSV transcripts.
+Upload WAV files → visualize waveform → auto-split on silence → play segments → re-split at any point → losslessly rebuild adjacent segments → renumber segments (001..N) → export CSV transcripts.
 
 ## Quick start with Docker
 
@@ -55,10 +55,25 @@ python batch_split_and_transcribe.py \
 docker build -t atc-splitter .
 ```
 
+## One-time segment renumbering script
+
+The container image includes a /scripts directory with a one-time renumber utility
+that harmonizes split/merge history and rewrites manifests to sequential indices.
+
+```bash
+docker compose exec atc-splitter python /scripts/renumber_segments_once.py --pretty
+```
+
+Optional: renumber only one source stem.
+
+```bash
+docker compose exec atc-splitter python /scripts/renumber_segments_once.py --source-stem my_audio --pretty
+```
+
 ## Configuration (docker-compose.yml environment variables)
 
 | Variable | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | PORT | 5000 | HTTP port inside container |
 | GUNICORN_WORKERS | 4 | Number of worker processes |
 

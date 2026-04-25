@@ -1,18 +1,4 @@
 #!/usr/bin/env python3
-# © 2026 by Ramon F. Kolb, kx1t.
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program. If not, see <https://www.gnu.org/licenses/>.
-
 """ATC Splitter — Flask backend.
 
 Endpoints:
@@ -27,6 +13,7 @@ Endpoints:
   GET    /api/audio/segment/<name>/<seg>   Stream a segment WAV
   POST   /api/resplit                Re-split at a specific time position
   POST   /api/rebuild                Combine adjacent segments losslessly
+    POST   /api/renumber/<name>        Renumber all segments in chronological order
     POST   /api/download-selected      Download one segment or ZIP of selected segments
   DELETE /api/segments/<name>/<seg>  Delete one segment
   GET    /api/manifest/<name>        Return the raw split manifest JSON
@@ -153,6 +140,7 @@ from split_wav_on_silence import (  # noqa: E402
     write_split_manifest,
 )
 from rebuild_segment_from_manifest import extract_span, load_manifest  # noqa: E402
+from segment_renumbering import renumber_segments_for_source  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -871,6 +859,30 @@ def rebuild():
         "end_sec": end_frame / fr,
         **wav_info(out_path),
     })
+
+
+# ---------------------------------------------------------------------------
+# Renumber segments and keep manifest/transcripts in sync
+# ---------------------------------------------------------------------------
+@app.route("/api/renumber/<name>", methods=["POST"])
+def renumber(name: str):
+    source = UPLOADS_DIR / name
+    if not source.exists():
+        abort(404, f"Source file not found: {name}")
+
+    stem = source.stem
+    seg_dir = source_dir(stem)
+    if not seg_dir.exists():
+        abort(404, f"No segments found for: {name}")
+
+    result = renumber_segments_for_source(
+        source_stem=stem,
+        source_wav=source,
+        seg_dir=seg_dir,
+        manifest_file=manifest_path(stem),
+        transcript_file=transcript_path(stem),
+    )
+    return jsonify(result)
 
 
 # ---------------------------------------------------------------------------

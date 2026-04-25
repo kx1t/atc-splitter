@@ -46,6 +46,7 @@ VOLUME ["/app/data"]
 
 # App code
 COPY app/ /app/
+COPY scripts/ /scripts/
 
 ENV PORT=5000
 EXPOSE 5000

@@ -1,19 +1,3 @@
-/*
- * © 2026 by Ramon F. Kolb, kx1t.
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program. If not, see <https://www.gnu.org/licenses/>.
- */
-
 /* ATC Splitter — main.js
  * Uses WaveSurfer.js v7 (loaded from CDN in index.html)
  */
@@ -635,6 +619,11 @@ function setupSegmentToolbar() {
   }
 
   document.getElementById('btn-rebuild').addEventListener('click', rebuildSelected);
+
+  const btnRenumber = document.getElementById('btn-renumber');
+  if (btnRenumber) {
+    btnRenumber.addEventListener('click', renumberSegments);
+  }
 }
 
 function updateSegmentActionButtons() {
@@ -644,10 +633,12 @@ function updateSegmentActionButtons() {
   const btnRebuild = document.getElementById('btn-rebuild');
   const btnDownload = document.getElementById('btn-download-selected');
   const btnDeleteAll = document.getElementById('btn-delete-all');
+  const btnRenumber = document.getElementById('btn-renumber');
   const chkSelectAll = document.getElementById('chk-select-all');
 
   if (btnRebuild) btnRebuild.disabled = selectedSegs.size < 2;
   if (btnDownload) btnDownload.disabled = selectedSegs.size < 1;
+  if (btnRenumber) btnRenumber.disabled = totalCheckboxes.length < 1;
 
   if (chkSelectAll) {
     const total = totalCheckboxes.length;
@@ -769,6 +760,22 @@ async function rebuildSelected() {
       body: JSON.stringify({ source_stem: sourceStem, segments: segsArr }),
     });
     toast(`Merged → ${result.merged}`, 'success');
+    refreshSegments();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function renumberSegments() {
+  if (!currentFile) return;
+  const sourceName = currentFile.name;
+
+  try {
+    const result = await apiFetch(API(`/api/renumber/${encodeURIComponent(sourceName)}`), {
+      method: 'POST',
+    });
+    const count = Number(result.renamed || 0);
+    toast(`Renumbered ${count} segment(s)`, 'success');
     refreshSegments();
   } catch (err) {
     toast(err.message, 'error');
