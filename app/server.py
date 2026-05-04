@@ -6,6 +6,7 @@ Endpoints:
     POST   /api/upload-chunk           Upload one chunk for a file
     POST   /api/upload-complete        Assemble uploaded chunks and verify SHA-256
   GET    /api/files                  List all uploaded source files with metadata
+  DELETE /api/files                   Delete all uploaded files and their segments
   DELETE /api/files/<name>           Delete an uploaded file and its segments
   GET    /api/audio/source/<name>    Stream a source WAV
   POST   /api/split/<name>           Auto-split a source file; returns segments
@@ -35,9 +36,9 @@ import hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from flask import Flask, Response, abort, jsonify, make_response, render_template, request, send_file
-from flask_cors import CORS
-from werkzeug.middleware.proxy_fix import ProxyFix
+from flask import Flask, Response, abort, jsonify, make_response, render_template, request, send_file # pyright: ignore[reportMissingImports]
+from flask_cors import CORS # pyright: ignore[reportMissingModuleSource]
+from werkzeug.middleware.proxy_fix import ProxyFix # pyright: ignore[reportMissingImports]
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -589,6 +590,21 @@ def list_files():
             **wav_info(p),
         })
     return jsonify(result)
+
+
+# ---------------------------------------------------------------------------
+# Delete all source files
+# ---------------------------------------------------------------------------
+@app.route("/api/files", methods=["DELETE"])
+def delete_all_files():
+    deleted = []
+    for p in list(UPLOADS_DIR.glob("*.wav")):
+        p.unlink()
+        seg_d = source_dir(p.stem)
+        if seg_d.exists():
+            shutil.rmtree(seg_d)
+        deleted.append(p.name)
+    return jsonify({"deleted": deleted})
 
 
 # ---------------------------------------------------------------------------

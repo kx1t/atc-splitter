@@ -38,7 +38,10 @@
 
     <!-- ── Source file list ── -->
     <section id="files-panel" class="panel">
-      <h2>Source Files</h2>
+      <div class="panel-header">
+        <h2>Source Files</h2>
+        <button id="btn-delete-all-files" class="btn btn-sm btn-danger" title="Delete all uploaded files and their segments" hidden>🗑 Delete All</button>
+      </div>
       <div id="file-list" class="file-list">
         <p class="empty-hint">No files uploaded yet.</p>
       </div>

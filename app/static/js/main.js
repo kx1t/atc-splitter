@@ -58,6 +58,9 @@ document.addEventListener('DOMContentLoaded', () => {
   setupUpload();
   setupSourceControls();
   setupSegmentToolbar();
+
+  const deleteAllBtn = document.getElementById('btn-delete-all-files');
+  if (deleteAllBtn) deleteAllBtn.addEventListener('click', deleteAllFiles);
 });
 
 function setupThemeToggle() {
@@ -99,6 +102,8 @@ async function loadFiles() {
 
 function renderFileList(files) {
   const el = document.getElementById('file-list');
+  const deleteAllBtn = document.getElementById('btn-delete-all-files');
+  if (deleteAllBtn) deleteAllBtn.hidden = files.length === 0;
   if (!files.length) {
     el.innerHTML = '<p class="empty-hint">No files uploaded yet.</p>';
     return;
@@ -128,6 +133,14 @@ async function deleteFile(name) {
   await apiFetch(API(`/api/files/${encodeURIComponent(name)}`), { method: 'DELETE' });
   if (currentFile?.name === name) closeWorkPanel();
   toast('Deleted', 'success');
+  loadFiles();
+}
+
+async function deleteAllFiles() {
+  if (!confirm('Delete ALL uploaded recordings and their segments?\n\nThis cannot be undone.')) return;
+  await apiFetch(API('/api/files'), { method: 'DELETE' });
+  closeWorkPanel();
+  toast('All files deleted', 'success');
   loadFiles();
 }
 
