@@ -50,7 +50,7 @@ def main() -> None:
     args = parse_args()
     _load_helpers()
 
-    from segment_renumbering import renumber_all_sources, renumber_segments_for_source
+    from segment_renumbering import renumber_all_sources, renumber_segments_for_source # type: ignore
 
     data_dir = args.data_dir
     if not data_dir.exists():
