@@ -46,6 +46,18 @@ let segmentWSMap = {};           // seg_name → WaveSurfer instance
 let selectedSegs = new Set();    // checked segment names
 const transcriptCache = {};      // sourceStem::seg_name -> transcript text
 
+function updateSourcePlayButton() {
+  const btn = document.getElementById('btn-play-source');
+  if (!btn) return;
+  btn.textContent = sourceWS && sourceWS.isPlaying() ? '⏸ Pause source' : '▶ Play source';
+}
+
+function toggleSourcePlayback() {
+  if (!sourceWS) return;
+  sourceWS.playPause();
+  updateSourcePlayButton();
+}
+
 function transcriptKey(sourceStem, segName) {
   return `${sourceStem}::${segName}`;
 }
@@ -275,6 +287,7 @@ function closeWorkPanel() {
   currentFile = null;
   if (sourceWS) { sourceWS.destroy(); sourceWS = null; }
   destroyAllSegmentWS();
+  updateSourcePlayButton();
   document.getElementById('work-panel').classList.add('hidden');
 }
 
@@ -308,25 +321,23 @@ async function buildSourceWS(f) {
   });
 
   sourceWS.on('finish', () => {
-    const btn = document.getElementById('btn-play-source');
-    btn.textContent = '▶ Play source';
     if (typeof sourceWS.setTime === 'function') {
       sourceWS.setTime(0);
     } else if (typeof sourceWS.seekTo === 'function') {
       sourceWS.seekTo(0);
     }
+    updateSourcePlayButton();
   });
 
-  document.getElementById('btn-play-source').addEventListener('click', () => {
-    sourceWS.playPause();
-    document.getElementById('btn-play-source').textContent =
-      sourceWS.isPlaying() ? '⏸ Pause source' : '▶ Play source';
-  });
+  sourceWS.on('play', updateSourcePlayButton);
+  sourceWS.on('pause', updateSourcePlayButton);
+  updateSourcePlayButton();
 }
 
 // ── Auto-split ────────────────────────────────────────────────────────────────
 
 function setupSourceControls() {
+  document.getElementById('btn-play-source').addEventListener('click', toggleSourcePlayback);
   document.getElementById('btn-auto-split').addEventListener('click', autoSplit);
   document.getElementById('btn-close-work').addEventListener('click', closeWorkPanel);
 }
