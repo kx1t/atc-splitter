@@ -58,6 +58,14 @@ function toggleSourcePlayback() {
   updateSourcePlayButton();
 }
 
+function stopSourcePlaybackAtCurrentPosition() {
+  if (!sourceWS) return;
+  if (sourceWS.isPlaying()) {
+    sourceWS.pause();
+    updateSourcePlayButton();
+  }
+}
+
 function transcriptKey(sourceStem, segName) {
   return `${sourceStem}::${segName}`;
 }
@@ -318,6 +326,7 @@ async function buildSourceWS(f) {
     // A click on the source waveform sets a split-at cursor but doesn't split immediately
     document.getElementById('source-time').textContent =
       `${fmtSec(t)} / ${fmtSec(sourceWS.getDuration() || f.duration_sec)}`;
+    stopSourcePlaybackAtCurrentPosition();
   });
 
   sourceWS.on('finish', () => {
@@ -607,9 +616,20 @@ function buildSegmentWS(seg, containerEl, timeEl, row) {
     row.querySelector('.btn-play-seg').textContent = '▶ Play';
   });
 
+  ws.on('play', () => {
+    row.querySelector('.btn-play-seg').textContent = '⏸ Pause';
+  });
+
+  ws.on('pause', () => {
+    row.querySelector('.btn-play-seg').textContent = '▶ Play';
+  });
+
   ws.on('interaction', t => {
     const inp = row.querySelector('.seg-split-input');
     if (inp) inp.value = t.toFixed(2);
+    if (ws.isPlaying()) {
+      ws.pause();
+    }
   });
 
   segmentWSMap[seg.name] = ws;
