@@ -178,7 +178,7 @@ function renderFileList(batches) {
     btnDownload.title = 'Renumber segments and download all files in this batch';
     btnDownload.textContent = '⬇';
     btnDownload.addEventListener('click', async () => {
-      await downloadBatch(batch.name, btnDownload);
+      await downloadBatch(batch, btnDownload);
     });
 
     const btnDelete = document.createElement('button');
@@ -260,7 +260,8 @@ async function triggerBinaryDownloadFromResponse(response, fallbackName) {
   URL.revokeObjectURL(url);
 }
 
-async function downloadBatch(batchName, btn) {
+async function downloadBatch(batch, btn) {
+  const batchName = batch.name;
   if (btn) btn.disabled = true;
   try {
     const response = await fetch(API(`/api/batches/${encodeURIComponent(batchName)}/download`), {
@@ -271,6 +272,13 @@ async function downloadBatch(batchName, btn) {
       throw new Error(errText || 'Batch download failed');
     }
     await triggerBinaryDownloadFromResponse(response, `${batchName}_all_segments.zip`);
+
+    // Batch download can renumber segment files on the backend. If the user currently
+    // has one of this batch's recordings open, refresh that segment list immediately.
+    if (currentFile && batch.files.some((f) => f.name === currentFile.name)) {
+      await refreshSegments();
+    }
+
     toast(`Downloaded batch: ${batchName}`, 'success');
   } catch (err) {
     toast(err.message, 'error');
