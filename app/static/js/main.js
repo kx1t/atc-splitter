@@ -44,6 +44,7 @@ let currentFile = null;          // { name, duration_sec, … }
 let sourceWS    = null;          // WaveSurfer instance for source
 let segmentWSMap = {};           // seg_name → WaveSurfer instance
 let selectedSegs = new Set();    // checked segment names
+const expandedBatches = new Set();
 const transcriptCache = {};      // sourceStem::seg_name -> transcript text
 
 function updateSourcePlayButton() {
@@ -78,9 +79,6 @@ document.addEventListener('DOMContentLoaded', () => {
   setupUpload();
   setupSourceControls();
   setupSegmentToolbar();
-
-  const deleteAllBtn = document.getElementById('btn-delete-all-files');
-  if (deleteAllBtn) deleteAllBtn.addEventListener('click', deleteAllFiles);
 });
 
 function setupThemeToggle() {
@@ -116,35 +114,111 @@ function applyTheme(theme, btn) {
 // ── File list ─────────────────────────────────────────────────────────────────
 
 async function loadFiles() {
-  const files = await apiFetch(API('/api/files')).catch(() => []);
-  renderFileList(files);
+  const batches = await apiFetch(API('/api/batches')).catch(() => []);
+  renderFileList(batches);
 }
 
-function renderFileList(files) {
+function renderFileList(batches) {
   const el = document.getElementById('file-list');
-  const deleteAllBtn = document.getElementById('btn-delete-all-files');
-  if (deleteAllBtn) deleteAllBtn.hidden = files.length === 0;
-  if (!files.length) {
+  if (!batches.length) {
     el.innerHTML = '<p class="empty-hint">No files uploaded yet.</p>';
     return;
   }
+
+  const batchNames = new Set(batches.map((b) => b.name));
+  for (const name of [...expandedBatches]) {
+    if (!batchNames.has(name)) expandedBatches.delete(name);
+  }
+
   el.innerHTML = '';
-  files.forEach(f => {
-    const item = document.createElement('div');
-    item.className = 'file-item' + (currentFile?.name === f.name ? ' active' : '');
-    item.dataset.name = f.name;
-    item.innerHTML = `
-      <span class="file-name" title="${f.name}">${f.name}</span>
-      <span class="file-dur">${fmtSec(f.duration_sec)}</span>
-      ${f.has_segments ? '<span class="file-badge">split</span>' : ''}
-      <button class="btn btn-sm btn-danger del-btn" title="Delete">✕</button>
-    `;
-    item.querySelector('.del-btn').addEventListener('click', e => {
-      e.stopPropagation();
-      deleteFile(f.name);
+
+  batches.forEach((batch) => {
+    const batchItem = document.createElement('div');
+    batchItem.className = 'batch-item';
+
+    const header = document.createElement('div');
+    header.className = 'batch-header';
+
+    const batchNameBtn = document.createElement('button');
+    batchNameBtn.className = 'batch-name';
+    batchNameBtn.title = 'Open batch';
+
+    const filesWrap = document.createElement('div');
+    filesWrap.className = 'batch-files';
+
+    const setBatchOpenVisualState = () => {
+      const isOpen = expandedBatches.has(batch.name);
+      batchNameBtn.textContent = `${isOpen ? '▾' : '▸'} ${batch.name}`;
+      filesWrap.classList.toggle('hidden', !isOpen);
+    };
+
+    const toggleOpen = () => {
+      if (expandedBatches.has(batch.name)) expandedBatches.delete(batch.name);
+      else expandedBatches.add(batch.name);
+      setBatchOpenVisualState();
+    };
+
+    batchNameBtn.addEventListener('click', toggleOpen);
+
+    const batchMeta = document.createElement('span');
+    batchMeta.className = 'batch-meta';
+    batchMeta.textContent = `${batch.file_count} file(s)`;
+
+    const actions = document.createElement('div');
+    actions.className = 'batch-actions';
+
+    const btnOpen = document.createElement('button');
+    btnOpen.className = 'btn btn-sm btn-secondary';
+    btnOpen.title = 'Open this batch';
+    btnOpen.textContent = '📂';
+    btnOpen.addEventListener('click', toggleOpen);
+
+    const btnDownload = document.createElement('button');
+    btnDownload.className = 'btn btn-sm btn-secondary';
+    btnDownload.title = 'Renumber segments and download all files in this batch';
+    btnDownload.textContent = '⬇';
+    btnDownload.addEventListener('click', async () => {
+      await downloadBatch(batch.name, btnDownload);
     });
-    item.addEventListener('click', () => openFile(f));
-    el.appendChild(item);
+
+    const btnDelete = document.createElement('button');
+    btnDelete.className = 'btn btn-sm btn-danger';
+    btnDelete.title = 'Delete all files in this batch';
+    btnDelete.textContent = '🗑';
+    btnDelete.addEventListener('click', async () => {
+      await deleteBatch(batch.name);
+    });
+
+    actions.appendChild(btnOpen);
+    actions.appendChild(btnDownload);
+    actions.appendChild(btnDelete);
+
+    header.appendChild(batchNameBtn);
+    header.appendChild(batchMeta);
+    header.appendChild(actions);
+
+    batch.files.forEach((f) => {
+      const item = document.createElement('div');
+      item.className = 'file-item' + (currentFile?.name === f.name ? ' active' : '');
+      item.dataset.name = f.name;
+      item.innerHTML = `
+        <span class="file-name" title="${f.name}">${f.name}</span>
+        <span class="file-dur">${fmtSec(f.duration_sec)}</span>
+        ${f.has_segments ? '<span class="file-badge">split</span>' : ''}
+        <button class="btn btn-sm btn-danger del-btn" title="Delete">✕</button>
+      `;
+      item.querySelector('.del-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        deleteFile(f.name);
+      });
+      item.addEventListener('click', () => openFile(f));
+      filesWrap.appendChild(item);
+    });
+
+    setBatchOpenVisualState();
+    batchItem.appendChild(header);
+    batchItem.appendChild(filesWrap);
+    el.appendChild(batchItem);
   });
 }
 
@@ -156,12 +230,53 @@ async function deleteFile(name) {
   loadFiles();
 }
 
-async function deleteAllFiles() {
-  if (!confirm('Delete ALL uploaded recordings and their segments?\n\nThis cannot be undone.')) return;
-  await apiFetch(API('/api/files'), { method: 'DELETE' });
-  closeWorkPanel();
-  toast('All files deleted', 'success');
+async function deleteBatch(batchName) {
+  if (!confirm(`Delete all recordings in batch "${batchName}" and all associated segments?\n\nThis cannot be undone.`)) {
+    return;
+  }
+
+  await apiFetch(API(`/api/batches/${encodeURIComponent(batchName)}`), { method: 'DELETE' });
+  if (currentFile) {
+    const batches = await apiFetch(API('/api/batches')).catch(() => []);
+    const allNames = new Set(batches.flatMap((b) => b.files.map((f) => f.name)));
+    if (!allNames.has(currentFile.name)) closeWorkPanel();
+  }
+  toast(`Deleted batch: ${batchName}`, 'success');
+  expandedBatches.delete(batchName);
   loadFiles();
+}
+
+async function triggerBinaryDownloadFromResponse(response, fallbackName) {
+  const blob = await response.blob();
+  const filename = parseDownloadFilename(response.headers.get('content-disposition'), fallbackName);
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function downloadBatch(batchName, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const response = await fetch(API(`/api/batches/${encodeURIComponent(batchName)}/download`), {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      const errText = await response.text().catch(() => 'Batch download failed');
+      throw new Error(errText || 'Batch download failed');
+    }
+    await triggerBinaryDownloadFromResponse(response, `${batchName}_all_segments.zip`);
+    toast(`Downloaded batch: ${batchName}`, 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 // ── Upload ────────────────────────────────────────────────────────────────────
@@ -182,6 +297,17 @@ function setupUpload() {
 
 async function uploadFiles(files) {
   if (!files.length) return;
+
+  const batchNameInput = window.prompt('Enter a name for this batch of files:');
+  if (batchNameInput === null) return;
+  const batchName = batchNameInput.trim();
+  if (!batchName) {
+    toast('Batch name is required', 'error');
+    return;
+  }
+
+  expandedBatches.add(batchName);
+
   const errEl = document.getElementById('upload-errors');
   const statusEl = document.getElementById('upload-status');
 
@@ -193,7 +319,7 @@ async function uploadFiles(files) {
     return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
   }
 
-  async function uploadOneFileChunked(file) {
+  async function uploadOneFileChunked(file, uploadBatchName) {
     if (!file.name.toLowerCase().endsWith('.wav') && !file.name.toLowerCase().endsWith('.mp3')) {
       throw new Error(`${file.name}: only WAV or MP3 files are accepted`);
     }
@@ -214,6 +340,7 @@ async function uploadFiles(files) {
       fd.append('total_chunks', String(totalChunks));
       fd.append('total_size', String(file.size));
       fd.append('file_sha256', fileSha256);
+      fd.append('batch_name', uploadBatchName);
       fd.append('chunk', chunkBlob, `${file.name}.part`);
 
       const chunkRes = await fetch(API('/api/upload-chunk'), { method: 'POST', body: fd });
@@ -229,7 +356,7 @@ async function uploadFiles(files) {
     const finalizeRes = await fetch(API('/api/upload-complete'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ upload_id: uploadId, file_name: file.name }),
+      body: JSON.stringify({ upload_id: uploadId, file_name: file.name, batch_name: uploadBatchName }),
     });
     if (!finalizeRes.ok) {
       const msg = await finalizeRes.text().catch(() => 'Upload finalize failed');
@@ -246,13 +373,13 @@ async function uploadFiles(files) {
 
     for (const file of Array.from(files)) {
       statusEl.textContent = `Preparing ${file.name}...`;
-      await uploadOneFileChunked(file);
+      await uploadOneFileChunked(file, batchName);
       uploadedNames.push(file.name);
     }
 
     statusEl.classList.add('hidden');
     if (uploadedNames.length) {
-      toast(`Uploaded ${uploadedNames.length} file(s)`, 'success');
+      toast(`Uploaded ${uploadedNames.length} file(s) to batch "${batchName}"`, 'success');
       loadFiles();
     }
   } catch (err) {

@@ -182,6 +182,53 @@ main {
 .file-item .file-name { flex: 1; font-size: .9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-item .file-dur  { color: var(--muted); font-size: .8rem; white-space: nowrap; }
 
+.batch-item {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface2);
+}
+
+.batch-header {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .55rem .65rem;
+}
+
+.batch-name {
+  flex: 1;
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 0;
+}
+
+.batch-meta {
+  font-size: .75rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.batch-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+}
+
+.batch-files {
+  display: flex;
+  flex-direction: column;
+  gap: .45rem;
+  padding: .2rem .55rem .55rem .95rem;
+}
+
+.batch-files .file-item {
+  padding: .48rem .65rem;
+}
+
 .empty-hint { color: var(--muted); font-style: italic; font-size: .875rem; }
 
 /* ── Work panel ── */

@@ -53,6 +53,7 @@ UPLOADS_DIR  = DATA_DIR / "uploads"
 SEGMENTS_ROOT = DATA_DIR / "segments"
 CHUNKS_DIR   = UPLOADS_DIR / ".chunks"
 MODELS_DIR   = DATA_DIR / "models"
+BATCH_INDEX_PATH = DATA_DIR / "batch_index.json"
 
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 SEGMENTS_ROOT.mkdir(parents=True, exist_ok=True)
@@ -301,6 +302,76 @@ def upload_chunk_dir(upload_id: str) -> Path:
     return CHUNKS_DIR / upload_id
 
 
+def normalize_batch_name(name: str) -> str:
+    # Collapse internal whitespace and trim to keep names readable and stable.
+    cleaned = " ".join((name or "").strip().split())
+    if not cleaned:
+        return "Uncategorized"
+    return cleaned[:120]
+
+
+def load_batch_index() -> Dict[str, str]:
+    if not BATCH_INDEX_PATH.exists():
+        return {}
+    try:
+        raw = json.loads(BATCH_INDEX_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    out: Dict[str, str] = {}
+    for key, value in raw.items():
+        name = Path(str(key)).name
+        if not name:
+            continue
+        out[name] = normalize_batch_name(str(value))
+    return out
+
+
+def save_batch_index(index: Dict[str, str]) -> None:
+    cleaned = {
+        Path(str(name)).name: normalize_batch_name(batch)
+        for name, batch in index.items()
+        if Path(str(name)).name
+    }
+    if cleaned:
+        BATCH_INDEX_PATH.write_text(json.dumps(cleaned, indent=2, ensure_ascii=False), encoding="utf-8")
+    elif BATCH_INDEX_PATH.exists():
+        BATCH_INDEX_PATH.unlink()
+
+
+def set_file_batch(file_name: str, batch_name: str) -> None:
+    name = Path(file_name).name
+    if not name:
+        return
+    index = load_batch_index()
+    index[name] = normalize_batch_name(batch_name)
+    save_batch_index(index)
+
+
+def remove_files_from_batches(file_names: List[str]) -> None:
+    if not file_names:
+        return
+    index = load_batch_index()
+    changed = False
+    for file_name in file_names:
+        key = Path(file_name).name
+        if key in index:
+            index.pop(key, None)
+            changed = True
+    if changed:
+        save_batch_index(index)
+
+
+def cleanup_batch_index_for_existing_files() -> Dict[str, str]:
+    index = load_batch_index()
+    existing = {p.name for p in UPLOADS_DIR.glob("*.wav")}
+    cleaned = {name: batch for name, batch in index.items() if name in existing}
+    if cleaned != index:
+        save_batch_index(cleaned)
+    return cleaned
+
+
 def segment_sort_key(entry: Dict[str, Any]) -> float:
     try:
         return float(entry.get("index", 0))
@@ -498,6 +569,7 @@ def upload_chunk():
     total_chunks = request.form.get("total_chunks")
     total_size = request.form.get("total_size")
     file_sha256_value = (request.form.get("file_sha256") or "").strip().lower()
+    batch_name = normalize_batch_name(request.form.get("batch_name") or "")
     chunk_file = request.files.get("chunk")
 
     if not upload_id or not file_name or chunk_index is None or total_chunks is None or total_size is None:
@@ -529,6 +601,7 @@ def upload_chunk():
             "total_chunks": total_chunks_i,
             "total_size": total_size_i,
             "file_sha256": file_sha256_value,
+            "batch_name": batch_name,
         }
         meta_path.write_text(json.dumps(meta), encoding="utf-8")
     else:
@@ -538,6 +611,7 @@ def upload_chunk():
             or int(meta.get("total_chunks", -1)) != total_chunks_i
             or int(meta.get("total_size", -1)) != total_size_i
             or (meta.get("file_sha256") or "") != file_sha256_value
+            or normalize_batch_name(meta.get("batch_name") or "") != batch_name
         ):
             abort(409, "Chunk metadata mismatch for upload_id")
 
@@ -567,6 +641,8 @@ def upload_complete():
     if meta.get("file_name") != file_name:
         abort(409, "File name mismatch for upload session")
 
+    batch_name = normalize_batch_name(meta.get("batch_name") or data.get("batch_name") or "")
+
     total_chunks = int(meta["total_chunks"])
     expected_size = int(meta["total_size"])
     expected_sha256 = (meta.get("file_sha256") or "").lower()
@@ -591,12 +667,16 @@ def upload_complete():
     dest = UPLOADS_DIR / file_name
     if dest.exists():
         dest.unlink()
+        remove_files_from_batches([file_name])
     shutil.move(str(temp_target), str(dest))
 
     # Convert MP3 → WAV (keep original sample rate and channel count)
     if file_name.lower().endswith(".mp3"):
         wav_name = Path(file_name).stem + ".wav"
         wav_dest = UPLOADS_DIR / wav_name
+        if wav_dest.exists():
+            wav_dest.unlink()
+            remove_files_from_batches([wav_name])
         import subprocess  # noqa: PLC0415
         try:
             subprocess.run(
@@ -611,6 +691,8 @@ def upload_complete():
         dest = wav_dest
         file_name = wav_name
 
+    set_file_batch(file_name, batch_name)
+
     shutil.rmtree(chunk_dir, ignore_errors=True)
 
     return jsonify({
@@ -624,15 +706,43 @@ def upload_complete():
 # ---------------------------------------------------------------------------
 @app.route("/api/files", methods=["GET"])
 def list_files():
+    batch_index = cleanup_batch_index_for_existing_files()
     result = []
     for p in sorted(UPLOADS_DIR.glob("*.wav")):
         has_segments = any(source_dir(p.stem).glob("*.wav"))
         result.append({
             "name": p.name,
+            "batch_name": batch_index.get(p.name, "Uncategorized"),
             "has_segments": has_segments,
             **wav_info(p),
         })
     return jsonify(result)
+
+
+@app.route("/api/batches", methods=["GET"])
+def list_batches():
+    batch_index = cleanup_batch_index_for_existing_files()
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+
+    for p in sorted(UPLOADS_DIR.glob("*.wav")):
+        batch_name = batch_index.get(p.name, "Uncategorized")
+        file_entry = {
+            "name": p.name,
+            "has_segments": any(source_dir(p.stem).glob("*.wav")),
+            **wav_info(p),
+        }
+        grouped.setdefault(batch_name, []).append(file_entry)
+
+    batches = []
+    for batch_name in sorted(grouped.keys(), key=lambda n: n.lower()):
+        files = sorted(grouped[batch_name], key=lambda f: str(f.get("name", "")).lower())
+        batches.append({
+            "name": batch_name,
+            "file_count": len(files),
+            "files": files,
+        })
+
+    return jsonify(batches)
 
 
 # ---------------------------------------------------------------------------
@@ -647,6 +757,7 @@ def delete_all_files():
         if seg_d.exists():
             shutil.rmtree(seg_d)
         deleted.append(p.name)
+    remove_files_from_batches(deleted)
     return jsonify({"deleted": deleted})
 
 
@@ -662,7 +773,76 @@ def delete_file(name: str):
     seg_d = source_dir(Path(name).stem)
     if seg_d.exists():
         shutil.rmtree(seg_d)
+    remove_files_from_batches([name])
     return jsonify({"deleted": name})
+
+
+@app.route("/api/batches/<path:batch_name>", methods=["DELETE"])
+def delete_batch(batch_name: str):
+    target_batch = normalize_batch_name(batch_name)
+    batch_index = cleanup_batch_index_for_existing_files()
+
+    existing_files = {p.name for p in UPLOADS_DIR.glob("*.wav")}
+    to_delete = [name for name in existing_files if batch_index.get(name, "Uncategorized") == target_batch]
+    if not to_delete:
+        abort(404, f"Batch not found: {target_batch}")
+
+    deleted: List[str] = []
+    for name in sorted(to_delete):
+        p = UPLOADS_DIR / name
+        if p.exists():
+            p.unlink()
+        seg_d = source_dir(Path(name).stem)
+        if seg_d.exists():
+            shutil.rmtree(seg_d)
+        deleted.append(name)
+
+    remove_files_from_batches(deleted)
+    return jsonify({"batch": target_batch, "deleted": deleted})
+
+
+@app.route("/api/batches/<path:batch_name>/download", methods=["POST"])
+def download_batch(batch_name: str):
+    target_batch = normalize_batch_name(batch_name)
+    batch_index = cleanup_batch_index_for_existing_files()
+
+    source_files = sorted([
+        p for p in UPLOADS_DIR.glob("*.wav")
+        if batch_index.get(p.name, "Uncategorized") == target_batch
+    ], key=lambda p: p.name.lower())
+    if not source_files:
+        abort(404, f"Batch not found: {target_batch}")
+
+    mem = io.BytesIO()
+    with zipfile.ZipFile(mem, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for source in source_files:
+            stem = source.stem
+            seg_dir = source_dir(stem)
+            seg_files = sorted(seg_dir.glob("*.wav"), key=lambda p: p.name.lower()) if seg_dir.exists() else []
+
+            if seg_files:
+                # Keep numbering predictable across all segment exports in this batch.
+                renumber_segments_for_source(
+                    source_stem=stem,
+                    source_wav=source,
+                    seg_dir=seg_dir,
+                    manifest_file=manifest_path(stem),
+                    transcript_file=transcript_path(stem),
+                )
+                seg_files = sorted(seg_dir.glob("*.wav"), key=lambda p: p.name.lower())
+                for seg in seg_files:
+                    zf.write(str(seg), arcname=f"{target_batch}/{stem}/{seg.name}")
+            else:
+                zf.write(str(source), arcname=f"{target_batch}/{source.name}")
+
+    mem.seek(0)
+    batch_slug = re.sub(r"[^A-Za-z0-9._-]+", "_", target_batch).strip("_") or "batch"
+    return send_file(
+        mem,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=f"{batch_slug}_all_segments.zip",
+    )
 
 
 # ---------------------------------------------------------------------------
