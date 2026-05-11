@@ -580,8 +580,8 @@ function buildSegmentRow(seg) {
     const sourceStem = currentFile.name.replace(/\.wav$/i, '');
     await apiFetch(API(`/api/segments/${encodeURIComponent(sourceStem)}/${encodeURIComponent(seg.name)}`),
       { method: 'DELETE' });
-    row.remove();
-    destroySegmentWS(seg.name);
+    await refreshSegments();
+    loadFiles();
     toast('Segment deleted');
   });
 
@@ -921,13 +921,11 @@ async function deleteAllSegments() {
       if (!segName) continue;
       await apiFetch(API(`/api/segments/${encodeURIComponent(sourceStem)}/${encodeURIComponent(segName)}`),
         { method: 'DELETE' });
-      const row = cb.closest('.seg-row');
-      if (row) row.remove();
-      destroySegmentWS(segName);
     }
 
     selectedSegs.clear();
-    updateSegmentActionButtons();
+    await refreshSegments();
+    loadFiles();
     toast('All segments deleted', 'success');
   } catch (err) {
     toast(`Failed to delete all segments: ${err.message}`, 'error');
