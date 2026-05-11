@@ -29,10 +29,12 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import threading
 import wave
 import zipfile
 import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -66,6 +68,45 @@ WHISPER_MODEL_SIZE: str = os.environ.get("WHISPER_MODEL_SIZE", "tiny.en").strip(
 _whisper_model = None           # set by background thread
 _whisper_loading: bool = False
 _whisper_error: str | None = None
+
+
+def _format_build_time(value: str) -> str:
+    text = (value or "").strip()
+    if not text:
+        return "unknown"
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(text).astimezone(timezone.utc)
+    except ValueError:
+        return value
+    return dt.strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _detect_local_git_commit_short() -> str:
+    try:
+        commit = subprocess.check_output(
+            ["git", "-C", str(BASE_DIR.parent), "rev-parse", "--short=7", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except Exception:
+        return ""
+    return commit
+
+
+def _resolve_build_metadata() -> Tuple[str, str]:
+    build_time = _format_build_time(os.environ.get("APP_BUILD_TIME", ""))
+    commit = (os.environ.get("APP_GIT_COMMIT", "") or "").strip()
+
+    if not commit:
+        commit = _detect_local_git_commit_short()
+
+    commit_short = commit[:7] if commit else "unknown"
+    return build_time, commit_short
+
+
+APP_BUILD_TIME, APP_GIT_COMMIT_SHORT = _resolve_build_metadata()
 
 
 def _whisper_log(message: str) -> None:
@@ -418,7 +459,9 @@ def spa(path: str):
     if not base_path:
         base_path = "."
     return render_template("index.html", base_path=base_path,
-                           enable_transcription=ENABLE_TRANSCRIPTION)
+                           enable_transcription=ENABLE_TRANSCRIPTION,
+                           build_time=APP_BUILD_TIME,
+                           build_commit_short=APP_GIT_COMMIT_SHORT)
 
 
 # ---------------------------------------------------------------------------

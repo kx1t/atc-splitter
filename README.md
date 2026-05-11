@@ -52,7 +52,10 @@ python batch_split_and_transcribe.py \
 ## Building the image locally
 
 ```bash
-docker build -t atc-splitter .
+docker build \
+  --build-arg APP_GIT_COMMIT="$(git rev-parse HEAD)" \
+  --build-arg APP_BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  -t atc-splitter .
 ```
 
 ## Configuration (docker-compose.yml environment variables)

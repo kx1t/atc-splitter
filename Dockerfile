@@ -41,6 +41,11 @@ COPY --from=build /install/deps /usr/local
 
 WORKDIR /app
 
+ARG APP_GIT_COMMIT=unknown
+ARG APP_BUILD_TIME=unknown
+ENV APP_GIT_COMMIT=${APP_GIT_COMMIT}
+ENV APP_BUILD_TIME=${APP_BUILD_TIME}
+
 # Persistent data volume (uploads, segments, and Whisper models all live here)
 VOLUME ["/app/data"]
 
