@@ -657,6 +657,11 @@ function setupSegmentToolbar() {
     btnDownload.addEventListener('click', downloadSelected);
   }
 
+  const btnRenumberDownloadAll = document.getElementById('btn-renumber-download-all');
+  if (btnRenumberDownloadAll) {
+    btnRenumberDownloadAll.addEventListener('click', renumberSelectAndDownloadAll);
+  }
+
   const btnDeleteAll = document.getElementById('btn-delete-all');
   if (btnDeleteAll) {
     btnDeleteAll.addEventListener('click', deleteAllSegments);
@@ -678,11 +683,13 @@ function updateSegmentActionButtons() {
   const btnDownload = document.getElementById('btn-download-selected');
   const btnDeleteAll = document.getElementById('btn-delete-all');
   const btnRenumber = document.getElementById('btn-renumber');
+  const btnRenumberDownloadAll = document.getElementById('btn-renumber-download-all');
   const chkSelectAll = document.getElementById('chk-select-all');
 
   if (btnRebuild) btnRebuild.disabled = selectedSegs.size < 2;
   if (btnDownload) btnDownload.disabled = selectedSegs.size < 1;
   if (btnRenumber) btnRenumber.disabled = totalCheckboxes.length < 1;
+  if (btnRenumberDownloadAll) btnRenumberDownloadAll.disabled = totalCheckboxes.length < 1;
 
   if (chkSelectAll) {
     const total = totalCheckboxes.length;
@@ -820,9 +827,32 @@ async function renumberSegments() {
     });
     const count = Number(result.renamed || 0);
     toast(`Renumbered ${count} segment(s)`, 'success');
-    refreshSegments();
+    await refreshSegments();
   } catch (err) {
     toast(err.message, 'error');
+  }
+}
+
+async function renumberSelectAndDownloadAll() {
+  if (!currentFile) return;
+
+  const btn = document.getElementById('btn-renumber-download-all');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Renumbering…';
+  }
+
+  try {
+    await renumberSegments();
+    toggleSelectAllSegments(true);
+    if (selectedSegs.size > 0) {
+      await downloadSelected();
+    }
+  } finally {
+    if (btn) {
+      btn.textContent = '↻⬇ Renumber and Download all';
+    }
+    updateSegmentActionButtons();
   }
 }
 

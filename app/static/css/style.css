@@ -272,6 +272,10 @@ main {
   margin-right: .1rem;
 }
 
+.segments-select-all {
+  gap: .15rem;
+}
+
 #segment-list {
   display: flex;
   flex-direction: column;
