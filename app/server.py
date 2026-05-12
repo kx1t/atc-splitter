@@ -869,7 +869,12 @@ def download_batch(batch_name: str):
     mem = io.BytesIO()
     with zipfile.ZipFile(mem, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         # Collect all annotations across all source files in this batch
-        all_annotations: List[Tuple[str, str]] = []  # (arcname, annotation_text)
+        all_annotations: List[Tuple[str, str]] = []  # (arcname_in_zip, annotation_text)
+
+        # First pass: gather all files and detect name collisions
+        batch_file_entries: List[Tuple[Path, str, Dict[str, str]]] = []
+        # ^ (seg_path, stem, annotations_dict)
+        source_only_entries: List[Path] = []
 
         for source in source_files:
             stem = source.stem
@@ -877,7 +882,6 @@ def download_batch(batch_name: str):
             seg_files = sorted(seg_dir.glob("*.wav"), key=lambda p: p.name.lower()) if seg_dir.exists() else []
 
             if seg_files:
-                # Keep numbering predictable across all segment exports in this batch.
                 renumber_segments_for_source(
                     source_stem=stem,
                     source_wav=source,
@@ -889,13 +893,32 @@ def download_batch(batch_name: str):
                 seg_files = sorted(seg_dir.glob("*.wav"), key=lambda p: p.name.lower())
                 annotations = load_annotations(stem)
                 for seg in seg_files:
-                    arc = f"{target_batch}/{stem}/{seg.name}"
-                    zf.write(str(seg), arcname=arc)
-                    ann_text = annotations.get(seg.name, "").strip()
-                    if ann_text:
-                        all_annotations.append((f"{stem}/{seg.name}", ann_text))
+                    batch_file_entries.append((seg, stem, annotations))
             else:
-                zf.write(str(source), arcname=f"{target_batch}/{source.name}")
+                source_only_entries.append(source)
+
+        # Detect filename collisions among all segment files
+        flat_names: List[str] = [seg.name for seg, _stem, _ann in batch_file_entries]
+        flat_names += [s.name for s in source_only_entries]
+        has_collision = len(flat_names) != len(set(flat_names))
+
+        # Second pass: write files using flat or subdirectory layout
+        for seg, stem, annotations in batch_file_entries:
+            if has_collision:
+                arc = f"{stem}/{seg.name}"
+            else:
+                arc = seg.name
+            zf.write(str(seg), arcname=arc)
+            ann_text = annotations.get(seg.name, "").strip()
+            if ann_text:
+                all_annotations.append((arc, ann_text))
+
+        for source in source_only_entries:
+            if has_collision:
+                arc = source.name  # no subdirectory needed for raw sources
+            else:
+                arc = source.name
+            zf.write(str(source), arcname=arc)
 
         if all_annotations:
             ann_buf = io.StringIO(newline="")
@@ -903,7 +926,7 @@ def download_batch(batch_name: str):
             ann_writer.writerow(["file_name", "annotation"])
             for arc_name, text in all_annotations:
                 ann_writer.writerow([arc_name, text])
-            zf.writestr(f"{target_batch}/annotations.csv", ann_buf.getvalue())
+            zf.writestr("annotations.csv", ann_buf.getvalue())
 
     mem.seek(0)
     batch_slug = re.sub(r"[^A-Za-z0-9._-]+", "_", target_batch).strip("_") or "batch"
