@@ -78,16 +78,20 @@
       <!-- Segments -->
       <div id="segments-area" class="hidden">
         <div class="segments-toolbar">
-          <h3>Segments</h3>
-          <span class="hint">Select two or more adjacent segments then click <strong>Merge</strong>.</span>
-          <label class="split-param segments-select-all">
-            <input type="checkbox" id="chk-select-all" /><span>Select All</span>
-          </label>
-          <button id="btn-delete-all" class="btn btn-danger" disabled>🗑 Delete all</button>
-          <button id="btn-download-selected" class="btn btn-secondary" disabled>⬇ Download selected</button>
-          <button id="btn-renumber-download-all" class="btn btn-secondary" disabled>↻⬇ Renumber and Download all</button>
-          <button id="btn-rebuild" class="btn btn-secondary" disabled>⧉ Merge selected</button>
-          <button id="btn-renumber" class="btn btn-secondary" disabled>↻ Renumber 001..N</button>
+          <div class="segments-toolbar-row">
+            <h3>Segments</h3>
+            <span class="hint">Select two or more adjacent segments then click <strong>Merge</strong>.</span>
+            <label class="split-param segments-select-all">
+              <input type="checkbox" id="chk-select-all" /><span>Select All</span>
+            </label>
+            <button id="btn-delete-all" class="btn btn-danger" disabled>🗑 Delete all</button>
+            <button id="btn-download-selected" class="btn btn-secondary" disabled>⬇ Download selected</button>
+          </div>
+          <div class="segments-toolbar-row">
+            <button id="btn-rebuild" class="btn btn-secondary" disabled>⧉ Merge selected</button>
+            <button id="btn-renumber" class="btn btn-secondary" disabled>↻ Renumber 001..N</button>
+            <button id="btn-renumber-download-all" class="btn btn-secondary" disabled>↻⬇ Renumber and Download all</button>
+          </div>
         </div>
         <div id="segment-list"></div>
       </div>

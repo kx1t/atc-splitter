@@ -41,6 +41,7 @@ def renumber_segments_for_source(
     seg_dir: Path,
     manifest_file: Path,
     transcript_file: Path,
+    annotation_file: Path | None = None,
 ) -> Dict[str, Any]:
     wav_files = sorted([p for p in seg_dir.glob("*.wav") if p.is_file()])
     if not wav_files:
@@ -164,6 +165,25 @@ def renumber_segments_for_source(
             else:
                 transcript_file.unlink(missing_ok=True)
 
+    if annotation_file is not None and annotation_file.exists():
+        try:
+            annotation_map = json.loads(annotation_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            annotation_map = {}
+        if isinstance(annotation_map, dict):
+            remapped_ann: Dict[str, str] = {}
+            for old_path, new_path in mapping:
+                text = annotation_map.get(old_path.name)
+                if isinstance(text, str) and text.strip():
+                    remapped_ann[new_path.name] = text
+            if remapped_ann:
+                annotation_file.write_text(
+                    json.dumps(remapped_ann, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+            else:
+                annotation_file.unlink(missing_ok=True)
+
     return {
         "source_stem": source_stem,
         "renamed": len(mapping),
@@ -185,6 +205,7 @@ def renumber_all_sources(data_dir: Path) -> Dict[str, Any]:
         source_wav = uploads_dir / f"{source_stem}.wav"
         manifest_file = seg_dir / f"{source_stem}_split_manifest.json"
         transcript_file = seg_dir / f"{source_stem}_transcripts.json"
+        annotation_file = seg_dir / f"{source_stem}_annotations.json"
 
         result = renumber_segments_for_source(
             source_stem=source_stem,
@@ -192,6 +213,7 @@ def renumber_all_sources(data_dir: Path) -> Dict[str, Any]:
             seg_dir=seg_dir,
             manifest_file=manifest_file,
             transcript_file=transcript_file,
+            annotation_file=annotation_file,
         )
         if result.get("renamed", 0) > 0:
             results.append(result)

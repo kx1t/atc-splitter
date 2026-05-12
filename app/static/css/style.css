@@ -290,9 +290,8 @@ main {
 /* ── Segments ── */
 .segments-toolbar {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: .75rem;
+  flex-direction: column;
+  gap: .5rem;
   margin-bottom: .75rem;
   padding: .55rem .65rem;
   position: sticky;
@@ -306,6 +305,13 @@ main {
   -webkit-backdrop-filter: blur(4px);
 }
 
+.segments-toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .75rem;
+}
+
 :root[data-theme='light'] .segments-toolbar {
   box-shadow: 0 3px 12px rgba(15,23,42,.12);
 }
@@ -314,8 +320,8 @@ main {
   margin-bottom: 0;
 }
 
-.segments-toolbar h3,
-.segments-toolbar .hint {
+.segments-toolbar-row h3,
+.segments-toolbar-row .hint {
   margin-right: .1rem;
 }
 
@@ -356,6 +362,7 @@ main {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .seg-dur { color: var(--muted); font-size: .8rem; white-space: nowrap; }
+.seg-annotation-icon { font-size: .85rem; cursor: default; }
 
 .seg-waveform-wrap {
   background: #0e1018;

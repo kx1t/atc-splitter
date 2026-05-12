@@ -45,6 +45,7 @@ let sourceWS    = null;          // WaveSurfer instance for source
 let segmentWSMap = {};           // seg_name → WaveSurfer instance
 let selectedSegs = new Set();    // checked segment names
 const expandedBatches = new Set();
+const annotationCache = {};       // sourceStem::seg_name -> annotation text
 const transcriptCache = {};      // sourceStem::seg_name -> transcript text
 
 function updateSourcePlayButton() {
@@ -549,6 +550,7 @@ function buildSegmentRow(seg) {
       <input type="checkbox" data-seg="${seg.name}" title="Select for merge" />
       <span class="seg-name" title="${seg.name}">${seg.name}</span>
       <span class="seg-dur">${fmtSec(seg.duration_sec)}</span>
+      <span class="seg-annotation-icon hidden" title="Has annotation">📝</span>
       <button class="btn btn-sm btn-danger btn-del-seg" data-seg="${seg.name}" title="Delete segment">✕</button>
     </div>
     <textarea class="seg-transcript hidden" rows="3" spellcheck="true" placeholder="Transcription will appear here"></textarea>
@@ -557,6 +559,7 @@ function buildSegmentRow(seg) {
     <div class="seg-controls">
       <button class="btn btn-sm btn-primary btn-play-seg" data-seg="${seg.name}">▶ Play</button>
       <span class="seg-time-display">0:00.00 / ${fmtSec(seg.duration_sec)}</span>
+      <button class="btn btn-sm btn-secondary btn-annotate" data-seg="${seg.name}" title="Add/edit annotation">✏ Annotate</button>
       <div class="seg-split-row">
         <label>Split at</label>
         <input type="number" min="0" step="0.01" placeholder="sec" class="seg-split-input" data-seg="${seg.name}" />
@@ -609,7 +612,41 @@ function buildSegmentRow(seg) {
   const sourceStem = currentFile ? currentFile.name.replace(/\.wav$/i, '') : '';
   const tKey = transcriptKey(sourceStem, seg.name);
 
-  // Preload persisted transcription from backend segment list.
+  // Initialize annotation icon from segment data
+  const aKey = `${sourceStem}::${seg.name}`;
+  if (seg.annotation) {
+    annotationCache[aKey] = seg.annotation;
+    row.querySelector('.seg-annotation-icon').classList.remove('hidden');
+  }
+
+  // Annotate button
+  row.querySelector('.btn-annotate').addEventListener('click', async () => {
+    if (!currentFile) return;
+    const liveSourceStem = currentFile.name.replace(/\.wav$/i, '');
+    const liveAKey = `${liveSourceStem}::${seg.name}`;
+    const existing = annotationCache[liveAKey] || '';
+    const newText = window.prompt('Enter annotation for this segment:', existing);
+    if (newText === null) return; // cancelled
+    try {
+      await apiFetch(API('/api/annotation'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_stem: liveSourceStem, segment_name: seg.name, text: newText }),
+      });
+      const icon = row.querySelector('.seg-annotation-icon');
+      if (newText.trim()) {
+        annotationCache[liveAKey] = newText;
+        icon.classList.remove('hidden');
+      } else {
+        delete annotationCache[liveAKey];
+        icon.classList.add('hidden');
+      }
+      toast('Annotation saved', 'success');
+    } catch (err) {
+      toast(`Failed to save annotation: ${err.message}`, 'error');
+    }
+  });
+
   if (seg.transcription) {
     transcriptCache[tKey] = seg.transcription;
     transcriptInput.value = seg.transcription;

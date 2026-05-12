@@ -205,6 +205,10 @@ def transcript_path(stem: str) -> Path:
     return source_dir(stem) / f"{stem}_transcripts.json"
 
 
+def annotation_path(stem: str) -> Path:
+    return source_dir(stem) / f"{stem}_annotations.json"
+
+
 def load_transcripts(stem: str) -> Dict[str, str]:
     tp = transcript_path(stem)
     if not tp.exists():
@@ -238,6 +242,52 @@ def set_transcript(stem: str, seg_name: str, text: str) -> None:
     else:
         transcripts.pop(seg_name, None)
     save_transcripts(stem, transcripts)
+
+
+def load_annotations(stem: str) -> Dict[str, str]:
+    ap = annotation_path(stem)
+    if not ap.exists():
+        return {}
+    try:
+        data = json.loads(ap.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(k): str(v) for k, v in data.items()}
+
+
+def save_annotations(stem: str, annotations: Dict[str, str]) -> None:
+    ap = annotation_path(stem)
+    cleaned = {
+        str(k): str(v)
+        for k, v in annotations.items()
+        if str(v).strip()
+    }
+    if cleaned:
+        ap.write_text(json.dumps(cleaned, indent=2, ensure_ascii=False), encoding="utf-8")
+    elif ap.exists():
+        ap.unlink()
+
+
+def set_annotation(stem: str, seg_name: str, text: str) -> None:
+    annotations = load_annotations(stem)
+    if text.strip():
+        annotations[seg_name] = text
+    else:
+        annotations.pop(seg_name, None)
+    save_annotations(stem, annotations)
+
+
+def remove_annotations(stem: str, seg_names: List[str]) -> None:
+    annotations = load_annotations(stem)
+    changed = False
+    for name in seg_names:
+        if name in annotations:
+            annotations.pop(name, None)
+            changed = True
+    if changed:
+        save_annotations(stem, annotations)
 
 
 def remove_transcripts(stem: str, seg_names: List[str]) -> None:
@@ -482,6 +532,7 @@ def segment_list_for(stem: str) -> List[Dict]:
     segs = []
     seen = set()
     transcripts = load_transcripts(stem)
+    annotations = load_annotations(stem)
 
     mp = manifest_path(stem)
     if mp.exists():
@@ -498,6 +549,7 @@ def segment_list_for(stem: str) -> List[Dict]:
                     "name": p.name,
                     "path": str(p),
                     "transcription": transcripts.get(p.name, ""),
+                    "annotation": annotations.get(p.name, ""),
                     **info,
                 })
                 seen.add(name)
@@ -512,6 +564,7 @@ def segment_list_for(stem: str) -> List[Dict]:
             "name": p.name,
             "path": str(p),
             "transcription": transcripts.get(p.name, ""),
+            "annotation": annotations.get(p.name, ""),
             **info,
         })
     return segs
@@ -815,6 +868,9 @@ def download_batch(batch_name: str):
 
     mem = io.BytesIO()
     with zipfile.ZipFile(mem, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        # Collect all annotations across all source files in this batch
+        all_annotations: List[Tuple[str, str]] = []  # (arcname, annotation_text)
+
         for source in source_files:
             stem = source.stem
             seg_dir = source_dir(stem)
@@ -828,12 +884,26 @@ def download_batch(batch_name: str):
                     seg_dir=seg_dir,
                     manifest_file=manifest_path(stem),
                     transcript_file=transcript_path(stem),
+                    annotation_file=annotation_path(stem),
                 )
                 seg_files = sorted(seg_dir.glob("*.wav"), key=lambda p: p.name.lower())
+                annotations = load_annotations(stem)
                 for seg in seg_files:
-                    zf.write(str(seg), arcname=f"{target_batch}/{stem}/{seg.name}")
+                    arc = f"{target_batch}/{stem}/{seg.name}"
+                    zf.write(str(seg), arcname=arc)
+                    ann_text = annotations.get(seg.name, "").strip()
+                    if ann_text:
+                        all_annotations.append((f"{stem}/{seg.name}", ann_text))
             else:
                 zf.write(str(source), arcname=f"{target_batch}/{source.name}")
+
+        if all_annotations:
+            ann_buf = io.StringIO(newline="")
+            ann_writer = csv.writer(ann_buf)
+            ann_writer.writerow(["file_name", "annotation"])
+            for arc_name, text in all_annotations:
+                ann_writer.writerow([arc_name, text])
+            zf.writestr(f"{target_batch}/annotations.csv", ann_buf.getvalue())
 
     mem.seek(0)
     batch_slug = re.sub(r"[^A-Za-z0-9._-]+", "_", target_batch).strip("_") or "batch"
@@ -992,6 +1062,7 @@ def resplit():
         mp.write_text(json.dumps(mdata, indent=2), encoding="utf-8")
 
     remove_transcripts(source_stem, [segment_name])
+    remove_annotations(source_stem, [segment_name])
 
     return jsonify({
         "removed": segment_name,
@@ -1091,6 +1162,13 @@ def rebuild():
     if merged_transcript:
         set_transcript(source_stem, output_name, merged_transcript)
 
+    existing_annotations = load_annotations(source_stem)
+    merged_annotation_parts = [existing_annotations.get(name, "").strip() for name in ordered_seg_names]
+    merged_annotation = " ".join(part for part in merged_annotation_parts if part).strip()
+    remove_annotations(source_stem, ordered_seg_names)
+    if merged_annotation:
+        set_annotation(source_stem, output_name, merged_annotation)
+
     return jsonify({
         "merged": output_name,
         "removed": ordered_seg_names,
@@ -1120,6 +1198,7 @@ def renumber(name: str):
         seg_dir=seg_dir,
         manifest_file=manifest_path(stem),
         transcript_file=transcript_path(stem),
+        annotation_file=annotation_path(stem),
     )
     return jsonify(result)
 
@@ -1158,6 +1237,13 @@ def download_selected():
         if transcripts.get(name, "").strip()
     }
 
+    annotations = load_annotations(source_stem)
+    selected_annotations = {
+        name: annotations.get(name, "")
+        for name in seg_names
+        if annotations.get(name, "").strip()
+    }
+
     mem = io.BytesIO()
     with zipfile.ZipFile(mem, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for p in seg_paths:
@@ -1172,6 +1258,16 @@ def download_selected():
                 if text:
                     writer.writerow([name, text])
             zf.writestr("transcriptions.csv", csv_buf.getvalue())
+
+        if selected_annotations:
+            ann_buf = io.StringIO(newline="")
+            ann_writer = csv.writer(ann_buf)
+            ann_writer.writerow(["file_name", "annotation"])
+            for name in seg_names:
+                text = selected_annotations.get(name)
+                if text:
+                    ann_writer.writerow([name, text])
+            zf.writestr("annotations.csv", ann_buf.getvalue())
     mem.seek(0)
 
     zip_name = f"{source_stem}_selected_segments.zip"
@@ -1193,6 +1289,7 @@ def delete_segment(source_stem: str, seg_name: str):
         p.unlink()
     remove_segments_from_manifest(source_stem, [seg_name])
     remove_transcripts(source_stem, [seg_name])
+    remove_annotations(source_stem, [seg_name])
     return jsonify({"deleted": seg_name})
 
 
@@ -1251,6 +1348,27 @@ def update_transcription():
         return jsonify({"error": f"Segment not found: {seg_name}"}), 404
 
     set_transcript(source_stem, seg_name, text)
+    return jsonify({"saved": seg_name, "text": text})
+
+
+# ---------------------------------------------------------------------------
+# Annotation
+# ---------------------------------------------------------------------------
+@app.route("/api/annotation", methods=["POST"])
+def update_annotation():
+    data = request.get_json(force=True)
+    source_stem: str = data.get("source_stem", "")
+    seg_name: str = data.get("segment_name", "")
+    text: str = str(data.get("text", ""))
+
+    if not source_stem or not seg_name:
+        return jsonify({"error": "source_stem and segment_name are required"}), 400
+
+    seg_path = source_dir(source_stem) / seg_name
+    if not seg_path.exists():
+        return jsonify({"error": f"Segment not found: {seg_name}"}), 404
+
+    set_annotation(source_stem, seg_name, text)
     return jsonify({"saved": seg_name, "text": text})
 
 
