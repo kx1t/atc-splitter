@@ -39,6 +39,7 @@ function toast(msg, kind = '') {
 const ENABLE_TRANSCRIPTION = document.querySelector('meta[name="app-config"]')
   ?.dataset.enableTranscription === 'true';
 const THEME_STORAGE_KEY = 'atc-splitter-theme';
+const CONTRAST_STORAGE_KEY = 'atc-splitter-contrast';
 
 let currentFile = null;          // { name, duration_sec, … }
 let sourceWS    = null;          // WaveSurfer instance for source
@@ -147,6 +148,7 @@ function transcriptKey(sourceStem, segName) {
 
 document.addEventListener('DOMContentLoaded', () => {
   setupThemeToggle();
+  setupContrastToggle();
   loadFiles();
   setupUpload();
   setupSourceControls();
@@ -156,14 +158,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function setupThemeToggle() {
   const btn = document.getElementById('btn-theme-toggle');
-  if (!btn) return;
-
   const root = document.documentElement;
   const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
   const systemPrefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   const initialTheme = savedTheme || (systemPrefersDark ? 'dark' : 'light');
 
   applyTheme(initialTheme, btn);
+
+  if (!btn) return;
 
   btn.addEventListener('click', () => {
     const nextTheme = root.dataset.theme === 'light' ? 'dark' : 'light';
@@ -172,15 +174,47 @@ function setupThemeToggle() {
   });
 }
 
+function setupContrastToggle() {
+  const btn = document.getElementById('btn-contrast-toggle');
+  const savedContrast = localStorage.getItem(CONTRAST_STORAGE_KEY);
+  const initialContrast = savedContrast === 'high' ? 'high' : 'normal';
+
+  applyContrast(initialContrast, btn);
+
+  if (!btn) return;
+
+  btn.addEventListener('click', () => {
+    const root = document.documentElement;
+    const current = root.dataset.contrast === 'high' ? 'high' : 'normal';
+    const next = current === 'high' ? 'normal' : 'high';
+    localStorage.setItem(CONTRAST_STORAGE_KEY, next);
+    applyContrast(next, btn);
+  });
+}
+
 function applyTheme(theme, btn) {
   const root = document.documentElement;
   root.dataset.theme = theme;
+  if (!btn) return;
   if (theme === 'light') {
     btn.textContent = '🌙 Night mode';
     btn.setAttribute('aria-pressed', 'false');
   } else {
     btn.textContent = '☀ Day mode';
     btn.setAttribute('aria-pressed', 'true');
+  }
+}
+
+function applyContrast(contrast, btn) {
+  const root = document.documentElement;
+  root.dataset.contrast = contrast === 'high' ? 'high' : 'normal';
+  if (!btn) return;
+  if (root.dataset.contrast === 'high') {
+    btn.textContent = '◪ Normal contrast';
+    btn.setAttribute('aria-pressed', 'true');
+  } else {
+    btn.textContent = '◩ High contrast';
+    btn.setAttribute('aria-pressed', 'false');
   }
 }
 
