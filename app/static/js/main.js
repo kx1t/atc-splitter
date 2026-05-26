@@ -47,6 +47,37 @@ let selectedSegs = new Set();    // checked segment names
 const expandedBatches = new Set();
 const annotationCache = {};       // sourceStem::seg_name -> annotation text
 const transcriptCache = {};      // sourceStem::seg_name -> transcript text
+let playbackRate = 1.0;
+
+function applyPlaybackRateToWaveSurfers() {
+  if (sourceWS) {
+    sourceWS.setPlaybackRate(playbackRate);
+  }
+  Object.values(segmentWSMap).forEach((ws) => {
+    if (ws) ws.setPlaybackRate(playbackRate);
+  });
+}
+
+function updatePlaybackRateDisplay() {
+  const valueEl = document.getElementById('playback-speed-value');
+  if (!valueEl) return;
+  valueEl.textContent = `${playbackRate.toFixed(2)}x`;
+}
+
+function setupPlaybackSpeedControl() {
+  const slider = document.getElementById('playback-speed-slider');
+  if (!slider) return;
+
+  playbackRate = Number(slider.value) || 1.0;
+  updatePlaybackRateDisplay();
+
+  slider.addEventListener('input', () => {
+    playbackRate = Number(slider.value) || 1.0;
+    updatePlaybackRateDisplay();
+    // Applies instantly even while playback is running.
+    applyPlaybackRateToWaveSurfers();
+  });
+}
 
 function updateSourcePlayButton() {
   const btn = document.getElementById('btn-play-source');
@@ -80,6 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupUpload();
   setupSourceControls();
   setupSegmentToolbar();
+  setupPlaybackSpeedControl();
 });
 
 function setupThemeToggle() {
@@ -453,6 +485,8 @@ async function buildSourceWS(f) {
     url: API(`/api/audio/source/${encodeURIComponent(f.name)}`),
   });
 
+  sourceWS.setPlaybackRate(playbackRate);
+
   sourceWS.on('timeupdate', (t) => {
     document.getElementById('source-time').textContent =
       `${fmtSec(t)} / ${fmtSec(sourceWS.getDuration() || f.duration_sec)}`;
@@ -771,6 +805,8 @@ function buildSegmentWS(seg, containerEl, timeEl, row) {
     height: 70,
     url: API(`/api/audio/segment/${encodeURIComponent(sourceStem)}/${encodeURIComponent(seg.name)}`),
   });
+
+  ws.setPlaybackRate(playbackRate);
 
   ws.on('timeupdate', t => {
     const dur = ws.getDuration() || seg.duration_sec;

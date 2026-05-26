@@ -91,6 +91,28 @@
             <button id="btn-rebuild" class="btn btn-secondary" disabled>⧉ Merge selected</button>
             <button id="btn-renumber" class="btn btn-secondary" disabled>↻ Renumber 001..N</button>
             <button id="btn-renumber-download-all" class="btn btn-secondary" disabled>↻⬇ Renumber and Download all</button>
+            <div class="segments-speed-control" title="Playback speed">
+              <label for="playback-speed-slider">Speed</label>
+              <input
+                type="range"
+                id="playback-speed-slider"
+                min="0.5"
+                max="2"
+                step="0.25"
+                value="1"
+                list="playback-speed-stops"
+              />
+              <span id="playback-speed-value">1.00x</span>
+              <datalist id="playback-speed-stops">
+                <option value="0.5"></option>
+                <option value="0.75"></option>
+                <option value="1"></option>
+                <option value="1.25"></option>
+                <option value="1.5"></option>
+                <option value="1.75"></option>
+                <option value="2"></option>
+              </datalist>
+            </div>
           </div>
         </div>
         <div id="segment-list"></div>

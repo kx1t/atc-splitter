@@ -329,6 +329,30 @@ main {
   gap: .15rem;
 }
 
+.segments-speed-control {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  margin-left: auto;
+  font-size: .8rem;
+  color: var(--muted);
+}
+
+.segments-speed-control label {
+  white-space: nowrap;
+}
+
+.segments-speed-control input[type='range'] {
+  width: 150px;
+}
+
+.segments-speed-control #playback-speed-value {
+  min-width: 42px;
+  text-align: right;
+  color: var(--accent2);
+  font-variant-numeric: tabular-nums;
+}
+
 #segment-list {
   display: flex;
   flex-direction: column;
