@@ -192,6 +192,10 @@ main {
   font-weight: 700;
 }
 
+:root[data-theme='light'][data-contrast='high'] .btn-accent {
+  color: #ffffff;
+}
+
 /* ── File list ── */
 .file-list {
   display: flex;
