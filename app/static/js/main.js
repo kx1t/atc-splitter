@@ -49,19 +49,50 @@ const annotationCache = {};       // sourceStem::seg_name -> annotation text
 const transcriptCache = {};      // sourceStem::seg_name -> transcript text
 let playbackRate = 1.0;
 
+function formatPlaybackRate(rate) {
+  return `${rate.toFixed(2)}x`;
+}
+
+function getCurrentPlaybackRate() {
+  const slider = document.getElementById('playback-speed-slider');
+  const sliderValue = Number(slider?.value);
+  if (Number.isFinite(sliderValue) && sliderValue > 0) {
+    playbackRate = sliderValue;
+  }
+  return playbackRate;
+}
+
+function setWaveSurferPlaybackRate(ws, rate) {
+  if (!ws) return;
+  ws.setPlaybackRate(rate);
+  // Keep the backing media element in sync as an extra guard.
+  if (typeof ws.getMediaElement === 'function') {
+    const media = ws.getMediaElement();
+    if (media) media.playbackRate = rate;
+  }
+}
+
 function applyPlaybackRateToWaveSurfers() {
+  const rate = getCurrentPlaybackRate();
   if (sourceWS) {
-    sourceWS.setPlaybackRate(playbackRate);
+    setWaveSurferPlaybackRate(sourceWS, rate);
   }
   Object.values(segmentWSMap).forEach((ws) => {
-    if (ws) ws.setPlaybackRate(playbackRate);
+    if (ws) setWaveSurferPlaybackRate(ws, rate);
+  });
+  updateSourcePlayButton();
+  document.querySelectorAll('#segment-list .btn-play-seg').forEach((btn) => {
+    const segName = btn.dataset.seg;
+    const ws = segName ? segmentWSMap[segName] : null;
+    const speed = formatPlaybackRate(rate);
+    btn.textContent = ws && ws.isPlaying() ? `⏸ Pause ${speed}` : `▶ Play ${speed}`;
   });
 }
 
 function updatePlaybackRateDisplay() {
   const valueEl = document.getElementById('playback-speed-value');
   if (!valueEl) return;
-  valueEl.textContent = `${playbackRate.toFixed(2)}x`;
+  valueEl.textContent = formatPlaybackRate(getCurrentPlaybackRate());
 }
 
 function setupPlaybackSpeedControl() {
@@ -71,25 +102,32 @@ function setupPlaybackSpeedControl() {
   playbackRate = Number(slider.value) || 1.0;
   updatePlaybackRateDisplay();
 
-  slider.addEventListener('input', () => {
+  const handleSpeedChange = () => {
     playbackRate = Number(slider.value) || 1.0;
     updatePlaybackRateDisplay();
     // Applies instantly even while playback is running.
     applyPlaybackRateToWaveSurfers();
-  });
+  };
+
+  slider.addEventListener('input', handleSpeedChange);
+  slider.addEventListener('change', handleSpeedChange);
 }
 
 function updateSourcePlayButton() {
   const btn = document.getElementById('btn-play-source');
   if (!btn) return;
-  btn.textContent = sourceWS && sourceWS.isPlaying() ? '⏸ Pause source' : '▶ Play source';
+  const speed = formatPlaybackRate(getCurrentPlaybackRate());
+  btn.textContent = sourceWS && sourceWS.isPlaying() ? `⏸ Pause ${speed}` : `▶ Play ${speed}`;
 }
 
 function toggleSourcePlayback() {
   if (!sourceWS) return;
   // Re-apply just before toggling play so start rate always matches UI.
-  sourceWS.setPlaybackRate(playbackRate);
+  setWaveSurferPlaybackRate(sourceWS, getCurrentPlaybackRate());
   sourceWS.playPause();
+  requestAnimationFrame(() => {
+    setWaveSurferPlaybackRate(sourceWS, getCurrentPlaybackRate());
+  });
   updateSourcePlayButton();
 }
 
@@ -483,15 +521,17 @@ async function buildSourceWS(f) {
     waveColor: getComputedStyle(document.documentElement).getPropertyValue('--wave-color').trim() || '#3b82f6',
     progressColor: getComputedStyle(document.documentElement).getPropertyValue('--progress-color').trim() || '#22d3ee',
     height: 100,
+    audioRate: getCurrentPlaybackRate(),
     plugins,
     url: API(`/api/audio/source/${encodeURIComponent(f.name)}`),
   });
 
-  sourceWS.setPlaybackRate(playbackRate);
+  setWaveSurferPlaybackRate(sourceWS, getCurrentPlaybackRate());
 
   sourceWS.on('ready', () => {
     // Ensure decoded media starts with the currently selected rate.
-    sourceWS.setPlaybackRate(playbackRate);
+    setWaveSurferPlaybackRate(sourceWS, getCurrentPlaybackRate());
+    updateSourcePlayButton();
   });
 
   sourceWS.on('timeupdate', (t) => {
@@ -516,7 +556,7 @@ async function buildSourceWS(f) {
   });
 
   sourceWS.on('play', () => {
-    sourceWS.setPlaybackRate(playbackRate);
+    setWaveSurferPlaybackRate(sourceWS, getCurrentPlaybackRate());
     updateSourcePlayButton();
   });
   sourceWS.on('pause', updateSourcePlayButton);
@@ -612,6 +652,13 @@ function buildSegmentRow(seg) {
       </div>
     </div>
   `;
+
+  const updateSegmentPlayButton = (isPlaying) => {
+    const btn = row.querySelector('.btn-play-seg');
+    if (!btn) return;
+    const speed = formatPlaybackRate(getCurrentPlaybackRate());
+    btn.textContent = isPlaying ? `⏸ Pause ${speed}` : `▶ Play ${speed}`;
+  };
 
   // Checkbox selection
   row.querySelector('input[type=checkbox]').addEventListener('change', e => {
@@ -790,8 +837,12 @@ function buildSegmentRow(seg) {
   row.querySelector('.btn-play-seg').addEventListener('click', () => {
     const ws = segmentWSMap[seg.name];
     if (!ws) return;
+    setWaveSurferPlaybackRate(ws, getCurrentPlaybackRate());
     ws.playPause();
-    row.querySelector('.btn-play-seg').textContent = ws.isPlaying() ? '⏸ Pause' : '▶ Play';
+    requestAnimationFrame(() => {
+      setWaveSurferPlaybackRate(ws, getCurrentPlaybackRate());
+      updateSegmentPlayButton(ws.isPlaying());
+    });
   });
 
   const waveContainer = row.querySelector('.seg-waveform-wrap');
@@ -799,6 +850,7 @@ function buildSegmentRow(seg) {
 
   // Build WaveSurfer for segment (deferred so DOM is ready)
   setTimeout(() => buildSegmentWS(seg, waveContainer, timeDisplay, row), 50);
+  updateSegmentPlayButton(false);
 
   return row;
 }
@@ -813,10 +865,23 @@ function buildSegmentWS(seg, containerEl, timeEl, row) {
     waveColor: '#3b82f6',
     progressColor: '#22d3ee',
     height: 70,
+    audioRate: getCurrentPlaybackRate(),
     url: API(`/api/audio/segment/${encodeURIComponent(sourceStem)}/${encodeURIComponent(seg.name)}`),
   });
 
-  ws.setPlaybackRate(playbackRate);
+  setWaveSurferPlaybackRate(ws, getCurrentPlaybackRate());
+
+  const updateSegmentPlayButton = (isPlaying) => {
+    const btn = row.querySelector('.btn-play-seg');
+    if (!btn) return;
+    const speed = formatPlaybackRate(getCurrentPlaybackRate());
+    btn.textContent = isPlaying ? `⏸ Pause ${speed}` : `▶ Play ${speed}`;
+  };
+
+  ws.on('ready', () => {
+    setWaveSurferPlaybackRate(ws, getCurrentPlaybackRate());
+    updateSegmentPlayButton(false);
+  });
 
   ws.on('timeupdate', t => {
     const dur = ws.getDuration() || seg.duration_sec;
@@ -831,15 +896,16 @@ function buildSegmentWS(seg, containerEl, timeEl, row) {
   });
 
   ws.on('finish', () => {
-    row.querySelector('.btn-play-seg').textContent = '▶ Play';
+    updateSegmentPlayButton(false);
   });
 
   ws.on('play', () => {
-    row.querySelector('.btn-play-seg').textContent = '⏸ Pause';
+    setWaveSurferPlaybackRate(ws, getCurrentPlaybackRate());
+    updateSegmentPlayButton(true);
   });
 
   ws.on('pause', () => {
-    row.querySelector('.btn-play-seg').textContent = '▶ Play';
+    updateSegmentPlayButton(false);
   });
 
   ws.on('interaction', t => {
