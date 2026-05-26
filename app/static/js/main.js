@@ -87,6 +87,8 @@ function updateSourcePlayButton() {
 
 function toggleSourcePlayback() {
   if (!sourceWS) return;
+  // Re-apply just before toggling play so start rate always matches UI.
+  sourceWS.setPlaybackRate(playbackRate);
   sourceWS.playPause();
   updateSourcePlayButton();
 }
@@ -487,6 +489,11 @@ async function buildSourceWS(f) {
 
   sourceWS.setPlaybackRate(playbackRate);
 
+  sourceWS.on('ready', () => {
+    // Ensure decoded media starts with the currently selected rate.
+    sourceWS.setPlaybackRate(playbackRate);
+  });
+
   sourceWS.on('timeupdate', (t) => {
     document.getElementById('source-time').textContent =
       `${fmtSec(t)} / ${fmtSec(sourceWS.getDuration() || f.duration_sec)}`;
@@ -508,7 +515,10 @@ async function buildSourceWS(f) {
     updateSourcePlayButton();
   });
 
-  sourceWS.on('play', updateSourcePlayButton);
+  sourceWS.on('play', () => {
+    sourceWS.setPlaybackRate(playbackRate);
+    updateSourcePlayButton();
+  });
   sourceWS.on('pause', updateSourcePlayButton);
   updateSourcePlayButton();
 }
