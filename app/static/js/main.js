@@ -149,6 +149,7 @@ function transcriptKey(sourceStem, segName) {
 document.addEventListener('DOMContentLoaded', () => {
   setupThemeToggle();
   setupContrastToggle();
+  setupDownloadPopup();
   loadFiles();
   setupUpload();
   setupSourceControls();
@@ -218,6 +219,32 @@ function applyContrast(contrast, btn) {
   }
 }
 
+function setupDownloadPopup() {
+  const dismissBtn = document.getElementById('btn-dismiss-download-popup');
+  if (!dismissBtn) return;
+  dismissBtn.addEventListener('click', hideDownloadPopup);
+}
+
+function showDownloadPopup(message) {
+  const popup = document.getElementById('download-popup');
+  const text = document.getElementById('download-popup-text');
+  if (!popup || !text) return;
+  text.textContent = message;
+  popup.classList.remove('hidden');
+}
+
+function updateDownloadPopup(message) {
+  const text = document.getElementById('download-popup-text');
+  if (!text) return;
+  text.textContent = message;
+}
+
+function hideDownloadPopup() {
+  const popup = document.getElementById('download-popup');
+  if (!popup) return;
+  popup.classList.add('hidden');
+}
+
 // ── File list ─────────────────────────────────────────────────────────────────
 
 async function loadFiles() {
@@ -281,9 +308,9 @@ function renderFileList(batches) {
     btnOpen.addEventListener('click', toggleOpen);
 
     const btnDownload = document.createElement('button');
-    btnDownload.className = 'btn btn-sm btn-secondary';
+    btnDownload.className = 'btn btn-secondary btn-batch-download';
     btnDownload.title = 'Renumber segments and download all files in this batch';
-    btnDownload.textContent = '⬇';
+    btnDownload.textContent = '⬇ Download';
     btnDownload.addEventListener('click', async () => {
       await downloadBatch(batch, btnDownload);
     });
@@ -370,6 +397,7 @@ async function triggerBinaryDownloadFromResponse(response, fallbackName) {
 async function downloadBatch(batch, btn) {
   const batchName = batch.name;
   if (btn) btn.disabled = true;
+  showDownloadPopup('Preparing download...');
   try {
     const response = await fetch(API(`/api/batches/${encodeURIComponent(batchName)}/download`), {
       method: 'POST',
@@ -378,6 +406,7 @@ async function downloadBatch(batch, btn) {
       const errText = await response.text().catch(() => 'Batch download failed');
       throw new Error(errText || 'Batch download failed');
     }
+    updateDownloadPopup('Downloading...');
     await triggerBinaryDownloadFromResponse(response, `${batchName}_all_segments.zip`);
 
     // Batch download can renumber segment files on the backend. If the user currently
@@ -387,7 +416,9 @@ async function downloadBatch(batch, btn) {
     }
 
     toast(`Downloaded batch: ${batchName}`, 'success');
+    hideDownloadPopup();
   } catch (err) {
+    hideDownloadPopup();
     toast(err.message, 'error');
   } finally {
     if (btn) btn.disabled = false;

@@ -264,6 +264,12 @@ main {
   gap: .35rem;
 }
 
+.btn-batch-download {
+  padding: .42rem .72rem;
+  font-size: .9rem;
+  font-weight: 700;
+}
+
 .batch-files {
   display: flex;
   flex-direction: column;
@@ -537,6 +543,31 @@ main {
 .toast.show { opacity: 1; }
 .toast.success { border-color: var(--success); color: var(--success); }
 .toast.error   { border-color: var(--danger);  color: var(--danger);  }
+
+.download-popup {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 9998;
+}
+
+.download-popup-card {
+  display: inline-flex;
+  align-items: center;
+  gap: .6rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: .55rem .7rem;
+  box-shadow: 0 8px 24px rgba(0,0,0,.35);
+}
+
+#download-popup-text {
+  font-size: .85rem;
+  font-weight: 600;
+  letter-spacing: .01em;
+}
 
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
